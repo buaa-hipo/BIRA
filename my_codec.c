@@ -5214,6 +5214,7 @@ int main() {
     fread(ar,1,size,fp);
     pc = ar;
     while(pc < ar + size) {
+        instr_init(&instr);
 	byte* next_pc = decode_common(pc, NULL, &instr);
 	if(instr.opcode == OP_bl) {
 	    printf("bl_target = %lx!", extract_int(*(uint*)pc, 0, 26));
