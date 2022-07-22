@@ -2409,6 +2409,12 @@ opnd_get_instr(opnd_t opnd)
     return opnd.value.instr;
 }
 
+app_pc
+opnd_get_pc(opnd_t opnd)
+{
+    return opnd.value.pc;
+}
+
 opnd_t
 opnd_create_immed_uint(ptr_uint_t i, opnd_size_t size)
 {

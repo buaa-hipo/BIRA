@@ -87,6 +87,9 @@ instr_get_note(instr_t *instr);
 opnd_t
 opnd_create_pc(app_pc pc);
 
+bool
+opnd_is_pc(opnd_t op);
+
 typedef enum {
     BYTE_REG = 0,
     HALF_REG = 1,

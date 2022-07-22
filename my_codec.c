@@ -5190,22 +5190,22 @@ int main() {
     tmp = encode_common(NULL, &instr, &di);
     uint adr = 0x2883;
     instr_t *ins = INSTR_CREATE_bl(opnd_create_pc(adr));
-    printf("yeah,retop=%d, byte=%u, bl_op=%d!\n", instr.opcode, tmp, ins->opcode);
+    printf("retop=%d, byte=%u, bl_op=%d, bl_target = %p!\n", instr.opcode, tmp, ins->opcode, opnd_get_pc(instr_get_target(ins)));
 
     ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(8));
     tmp = encode_common(NULL, ins, &di);
-    printf("yeah, subop=%d, byte=%u!\n", ins->opcode, tmp);
+    printf("subop=%d, byte=%u!\n", ins->opcode, tmp);
 
     ins = INSTR_CREATE_str(
                 opnd_create_base_disp_aarch64(DR_REG_XSP, DR_REG_NULL, 0, false,
                                               0, 0, OPSZ_8),
                 opnd_create_reg(DR_REG_LR));
     tmp = encode_common(NULL, ins, &di);
-    printf("yeah, subop=%d, byte=%u!\n", ins->opcode, tmp);
+    printf("subop=%d, byte=%u!\n", ins->opcode, tmp);
 
     FILE *fp = NULL;
 
-    fp = fopen("is_text.bin", "rw");
+    fp = fopen("test_text.bin", "rw");
     fseek(fp, 0, SEEK_END);
     int size = ftell(fp);
     rewind(fp);
@@ -5214,9 +5214,13 @@ int main() {
     fread(ar,1,size,fp);
     pc = ar;
     while(pc < ar + size) {
-	pc = decode_common(pc, pc, &instr);
+	byte* next_pc = decode_common(pc, NULL, &instr);
+	if(instr.opcode == OP_bl) {
+	    printf("bl_target = %lx!", extract_int(*(uint*)pc, 0, 26));
+	}
 	tmp = encode_common(NULL, &instr, &di);
-	printf("yeah,op=%d, byte=%u!\n", instr.opcode, tmp, ins->opcode);
+	printf("pc = %u, op=%d, byte=%u!\n", *(uint*)pc, instr.opcode, tmp);
+	pc = next_pc;
     }
     free(ar);
     return 0;
