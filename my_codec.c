@@ -5183,7 +5183,7 @@ int main() {
     instr_init(&instr);
     int b = 3573751839;
     // byte b = 214;
-    byte* pc = &b;
+    byte* pc = (byte*)&b;
     decode_common(pc, pc, &instr);
     decode_info_t di;
     uint tmp;
