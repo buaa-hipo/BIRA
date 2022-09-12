@@ -1,0 +1,16 @@
+build/
+install/
+my_codec.cpp.bak
+decode_gen_sve.h
+decode_gen_v80.h
+decode_gen_v81.h
+decode_gen_v82.h
+encode_gen_sve.h
+encode_gen_v80.h
+encode_gen_v81.h
+encode_gen_v82.h
+opcode_api.h
+opcode_names.h
+opcode_opnd_pairs.h
+opnd_decode_funcs.h
+opnd_encode_funcs.h

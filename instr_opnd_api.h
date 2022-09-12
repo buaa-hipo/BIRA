@@ -4274,6 +4274,23 @@ opnd_create_immed_double(double i)
     return opnd;
 }
 
+opnd_t
+opnd_create_instr_ex(instr_t *instr, opnd_size_t size, ushort shift)
+{
+    opnd_t opnd;
+    opnd.kind = INSTR_kind;
+    opnd.value.instr = instr;
+    opnd.aux.shift = shift;
+    opnd.size = size;
+    return opnd;
+}
+
+opnd_t
+opnd_create_instr(instr_t *instr)
+{
+    return opnd_create_instr_ex(instr, OPSZ_PTR, 0);
+}
+
 double
 opnd_get_immed_double(opnd_t opnd)
 {
@@ -4303,6 +4320,18 @@ instr_build(int opcode, int instr_num_dsts, int instr_num_srcs)
 }
 
 instr_t *
+instr_create_1dst_3src(int opcode, opnd_t dst, opnd_t src1, opnd_t src2,
+                       opnd_t src3)
+{
+    instr_t *in = instr_build(opcode, 1, 3);
+    instr_set_dst(in, 0, dst);
+    instr_set_src(in, 0, src1);
+    instr_set_src(in, 1, src2);
+    instr_set_src(in, 2, src3);
+    return in;
+}
+
+instr_t *
 instr_create_1dst_1src(int opcode, opnd_t dst, opnd_t src)
 {
     instr_t *in = instr_build(opcode, 1, 1);
@@ -4324,13 +4353,53 @@ instr_create_1dst_4src(int opcode, opnd_t dst, opnd_t src1, opnd_t src2,
     return in;
 }
 
+instr_t *
+instr_create_0dst_0src(int opcode)
+{
+    instr_t *in = instr_build(opcode, 0, 0);
+    return in;
+}
+
+instr_t *
+instr_create_0dst_1src(int opcode, opnd_t src)
+{
+    instr_t *in = instr_build(opcode, 0, 1);
+    instr_set_src(in, 0, src);
+    return in;
+}
+
+instr_t *
+instr_create_1dst_2src(int opcode, opnd_t dst, opnd_t src1, opnd_t src2)
+{
+    instr_t *in = instr_build(opcode, 1, 2);
+    instr_set_dst(in, 0, dst);
+    instr_set_src(in, 0, src1);
+    instr_set_src(in, 1, src2);
+    return in;
+}
+
+instr_t *
+instr_create_2dst_1src(int opcode, opnd_t dst1, opnd_t dst2, opnd_t src)
+{
+    instr_t *in = instr_build(opcode, 2, 1);
+    instr_set_dst(in, 0, dst1);
+    instr_set_dst(in, 1, dst2);
+    instr_set_src(in, 0, src);
+    return in;
+}
+
 #define OPND_CREATE_INT(val) OPND_CREATE_INTPTR(val)
 
 #define OPND_CREATE_LSL() opnd_add_flags(OPND_CREATE_INT(DR_SHIFT_LSL), DR_OPND_IS_SHIFT)
 
+/** Create a zero register operand of the same size as reg. */
+#define OPND_CREATE_ZR(reg) \
+    opnd_create_reg(opnd_get_size(reg) == OPSZ_4 ? DR_REG_WZR : DR_REG_XZR)
+
 #define INSTR_CREATE_bl(pc) \
     instr_create_1dst_1src(OP_bl, opnd_create_reg(DR_REG_X30), (pc))
-#define INSTR_CREATE_ret(Rn) instr_create_0dst_1src((OP_ret, (Rn))
+
+#define INSTR_CREATE_ret(Rn) instr_create_0dst_1src(OP_ret, (Rn))
 // sub sp, str reg from stack, bl func, ldr reg from stack, add sp
 #define INSTR_CREATE_str(mem, rt) instr_create_1dst_1src(OP_str, mem, rt)
 #define INSTR_CREATE_ldr(Rd, mem) instr_create_1dst_1src(OP_ldr, (Rd), (mem))
@@ -4371,3 +4440,96 @@ instr_create_1dst_4src(int opcode, opnd_t dst, opnd_t src1, opnd_t src2,
                                 OPND_CREATE_INT(0))                                     \
         : INSTR_CREATE_add_shift(rd, rn, rm_or_imm, OPND_CREATE_LSL(),              \
                                  OPND_CREATE_INT(0))
+
+#define INSTR_CREATE_nop() instr_create_0dst_0src(OP_nop)
+
+#define INSTR_CREATE_and_shift(rd, rn, rm, sht, sha)                             \
+    instr_create_1dst_4src(OP_and, (rd), (rn),                                 \
+                           opnd_create_reg_ex(opnd_get_reg(rm), 0, DR_OPND_SHIFTED), \
+                           opnd_add_flags((sht), DR_OPND_IS_SHIFT), (sha))
+
+/**
+ * Creates an AND instruction with one output and two inputs.
+ * \param rd   The output register.
+ * \param rn   The first input register.
+ * \param rm_or_imm   The second input register or immediate.
+ */
+#define INSTR_CREATE_and(rd, rn, rm_or_imm)                             \
+    (opnd_is_immed(rm_or_imm)                                               \
+         ? instr_create_1dst_2src(OP_and, (rd), (rn), (rm_or_imm))    \
+         : INSTR_CREATE_and_shift(rd, rn, rm_or_imm, OPND_CREATE_LSL(), \
+                                  OPND_CREATE_INT(0)))
+
+#define INSTR_CREATE_label() instr_create_0dst_0src(OP_LABEL)
+
+#define INSTR_CREATE_blr(xn) \
+    instr_create_1dst_1src(OP_blr, opnd_create_reg(DR_REG_X30), (xn))
+
+#define INSTR_CREATE_movk(rt, imm16, lsl) \
+    instr_create_1dst_4src(OP_movk, rt, rt, imm16, OPND_CREATE_LSL(), lsl)
+#define INSTR_CREATE_movz(rt, imm16, lsl) \
+    instr_create_1dst_3src(OP_movz, rt, imm16, OPND_CREATE_LSL(), lsl)
+
+#define INSTR_CREATE_adrp(rt, imm) instr_create_1dst_1src(OP_adrp, rt, imm)
+
+#define INSTR_CREATE_stp(mem, rt1, rt2) \
+    instr_create_1dst_2src(OP_stp, mem, rt1, rt2)
+
+#define INSTR_CREATE_ldp(rt1, rt2, mem) \
+    instr_create_2dst_1src(OP_ldp, rt1, rt2, mem)
+
+/**
+ * Set the predication value for an instruction.
+ */
+#define INSTR_PRED(instr_ptr, pred) instr_set_predicate((instr_ptr), (pred))
+
+/**
+ * This platform-independent macro creates an instr_t for a conditional
+ * branch instruction that branches if the previously-set condition codes
+ * indicate the condition indicated by \p pred.
+ * \param dc  The void * dcontext used to allocate memory for the instr_t.
+ * \param pred  The #dr_pred_type_t condition to match.
+ * \param t   The opnd_t target operand for the instruction, which can be
+ * either a pc (opnd_create_pc)()) or an instr_t (opnd_create_instr()).
+ * Be sure to ensure that the limited reach of this short branch will reach
+ * the target (a pc operand is not suitable for most uses unless you know
+ * precisely where this instruction will be encoded).
+ */
+#define XINST_CREATE_jump_cond(pred, t) \
+    (INSTR_PRED(INSTR_CREATE_bcond((t)), (pred)))
+
+/**
+ * This macro creates an instr_t for a conditional branch instruction. The condition
+ * can be set using INSTR_PRED macro.
+ * \param dc The void * dcontext used to allocate memory for the instr_t.
+ * \param pc The opnd_t target operand containing the program counter to jump to.
+ */
+#define INSTR_CREATE_bcond(pc) instr_create_0dst_1src(OP_bcond, (pc))
+
+#define INSTR_CREATE_subs_shift(rd, rn, rm_or_imm, sht, sha)               \
+    opnd_is_reg(rm_or_imm)                                                     \
+        ? instr_create_1dst_4src(                                              \
+              OP_subs, (rd), (rn),                                       \
+              opnd_create_reg_ex(opnd_get_reg(rm_or_imm), 0, DR_OPND_SHIFTED), \
+              opnd_add_flags((sht), DR_OPND_IS_SHIFT), (sha))                  \
+        : instr_create_1dst_4src(OP_subs, (rd), (rn), (rm_or_imm), (sht), (sha))
+
+#define INSTR_CREATE_subs(rd, rn, rm_or_imm) \
+    INSTR_CREATE_subs_shift(rd, rn, rm_or_imm, OPND_CREATE_LSL(), OPND_CREATE_INT(0))
+
+/**
+ * This platform-independent macro creates an instr_t for a comparison
+ * instruction.
+ * \param s1  The opnd_t explicit source operand for the instruction.
+ * \param s2  The opnd_t explicit source operand for the instruction.
+ */
+#define XINST_CREATE_cmp(s1, s2) INSTR_CREATE_cmp(s1, s2)
+
+#define INSTR_CREATE_cmp(rn, rm_or_imm) \
+    INSTR_CREATE_subs(OPND_CREATE_ZR(rn), rn, rm_or_imm)
+
+#define OPND_CREATE_INT16(val) opnd_create_immed_int((ptr_int_t)(val), OPSZ_2)
+
+#define OPND_CREATE_INT8(val) opnd_create_immed_int((ptr_int_t)(val), OPSZ_1)
+
+#define OPND_CREATE_ABSMEM(addr, size) opnd_create_rel_addr(addr, size)

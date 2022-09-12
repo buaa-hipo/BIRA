@@ -42,8 +42,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <vector>
+#include <string>
 
+#include <LIEF/ELF.hpp>
+#include <LIEF/enums.hpp>
 #include "codec.h"
+#include "BPatch.h"
+#include "Symtab.h"
+#include "Function.h"
+#include "Module.h"
+
+#include "BPatch_binaryEdit.h"
+#include "BPatch_addressSpace.h"
+#include "BPatch_function.h"
+#include "BPatch_image.h"
+#include "BPatch_point.h"
+#include "BPatch_process.h"
+#include "BPatch_thread.h"
+#include "BPatch_type.h"
+
+using namespace LIEF::ELF;
+
+using namespace std;
+
+using namespace Dyninst;
 
 /* Decode immediate argument of bitwise operations.
  * Returns zero if the encoding is invalid.
@@ -232,10 +255,12 @@ encode_pc_off(OUT uint *poff, int bits, byte *pc, instr_t *instr, opnd_t opnd,
     else
         return false;
     range = (ptr_uint_t)1 << bits;
-    if (!TEST(~((range - 1) << 2), off + (range << 1))) {
+    // printf("~((range - 1) << 2) = %lx, off + (range << 1) = %lx\n", ~((range - 1) << 2), off + (range << 1));
+    // if (!TEST(~((range - 1) << 2), off + (range << 1))) {
         *poff = off >> 2 & (range - 1);
         return true;
-    }
+    // }
+    // printf("off = %lx, di->check_reachable = %d, opnd.kind != PC_kind = %d, ALIGNED(off, 4) = %d\n", off, di->check_reachable, opnd.kind != PC_kind, ALIGNED(off, 4));
     /* If !di->check_reachable we do not require correct alignment for instr operands as
      * there is a common use case of a label instruction operand whose note value holds
      * an identifier used in instrumentation (i#5297).  For pc operands, we do require
@@ -5178,51 +5203,667 @@ encode_common(byte *pc, instr_t *i, decode_info_t *di)
     return encoder_v80(pc, i, di);
 }
 
-int main() {
-    instr_t instr;
-    instr_init(&instr);
-    int b = 3573751839;
-    // byte b = 214;
-    byte* pc = (byte*)&b;
-    decode_common(pc, pc, &instr);
-    decode_info_t di;
-    uint tmp;
-    tmp = encode_common(NULL, &instr, &di);
-    uint adr = 0x2883;
-    instr_t *ins = INSTR_CREATE_bl(opnd_create_pc(adr));
-    printf("retop=%d, byte=%u, bl_op=%d, bl_target = %p!\n", instr.opcode, tmp, ins->opcode, opnd_get_pc(instr_get_target(ins)));
-
-    ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(8));
-    tmp = encode_common(NULL, ins, &di);
-    printf("subop=%d, byte=%u!\n", ins->opcode, tmp);
-
-    ins = INSTR_CREATE_str(
-                opnd_create_base_disp_aarch64(DR_REG_XSP, DR_REG_NULL, 0, false,
-                                              0, 0, OPSZ_8),
-                opnd_create_reg(DR_REG_LR));
-    tmp = encode_common(NULL, ins, &di);
-    printf("subop=%d, byte=%u!\n", ins->opcode, tmp);
-
-    FILE *fp = NULL;
-
-    fp = fopen("test_text.bin", "rw");
-    fseek(fp, 0, SEEK_END);
-    int size = ftell(fp);
-    rewind(fp);
-
-    byte *ar = (byte*)malloc(sizeof(byte)*size);
-    fread(ar,1,size,fp);
-    pc = ar;
-    while(pc < ar + size) {
-        instr_init(&instr);
-	byte* next_pc = decode_common(pc, NULL, &instr);
-	if(instr.opcode == OP_bl) {
-	    printf("bl_target = %lx!", extract_int(*(uint*)pc, 0, 26));
-	}
-	tmp = encode_common(NULL, &instr, &di);
-	printf("pc = %u, op=%d, byte=%u!\n", *(uint*)pc, instr.opcode, tmp);
-	pc = next_pc;
+// to-do: use virtual_address as orig_pc
+vector<instr_t*>
+decode(LIEF::span<const unsigned char> &text_content, uint file_offset, vector<uint> &ins_code_list)
+{
+    vector<instr_t*> decode_list;
+    for(int i = 0; i < text_content.size(); i+=4) {
+        instr_t *ins = instr_create();
+	instr_init(ins);
+	byte* pc = &text_content[i];
+	decode_common(pc, file_offset + i, ins);
+	/* can do some modify on ins!*/
+	ins_code_list.push_back(*(uint*)pc);
+	decode_list.push_back(ins);
     }
-    free(ar);
+
+    return decode_list;
+}
+
+// replace func_name in BL func_name(or address obtain by LIEF) in .text section with new_func
+void
+encode(vector<instr_t*> &instr_list, uint file_offset, vector<uint> &ins_code_list) {
+    int count = 0;
+    for(auto ins : instr_list) {
+	byte* pc = ins_code_list[count];
+    	decode_info_t di;
+	uint tmp = encode_common(count*4 + file_offset, ins, &di);
+	ins_code_list[count] = tmp;
+	count ++;
+    } 
+}
+
+vector<uint8_t>
+getByteslist(vector<instr_t*> &instr_list, vector<uint> &ins_code_list)
+{
+    vector<uint8_t> data;
+    int count = 0;
+    for(auto i : instr_list) {
+        byte* pc = (byte*)&ins_code_list[count];
+        data.push_back(*pc);
+        data.push_back(*(pc+1));
+        data.push_back(*(pc+2));
+        data.push_back(*(pc+3));
+	count ++;
+    }
+    return data;
+}
+
+static Address base, hook_func;
+uint8_t params_num;
+
+void
+save_params_reg(vector<instr_t*> &ins_list, vector<uint> &ins_code_list)
+{
+    // stp x0, x1, [sp, #-0x10]!
+    instr_t * stp1_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X1));
+    ins_list.push_back(stp1_ins);
+    ins_code_list.push_back(0);
+    // sub sp sp 16
+    instr_t* sub1_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(sub1_ins);
+    ins_code_list.push_back(0);
+    if(params_num > 2) {
+	// stp x2, x3, [sp, #-0x10]!
+        instr_t * stp2_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X3));
+        ins_list.push_back(stp2_ins);
+        ins_code_list.push_back(0);
+        // sub sp sp 16
+        instr_t* sub2_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(sub2_ins);
+        ins_code_list.push_back(0);
+    }
+    if(params_num > 4) {
+	// stp x4, x5, [sp, #-0x10]!
+        instr_t * stp3_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X4), opnd_create_reg(DR_REG_X5));
+        ins_list.push_back(stp3_ins);
+        ins_code_list.push_back(0);
+        // sub sp sp 16
+        instr_t* sub3_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(sub3_ins);
+        ins_code_list.push_back(0);
+    }
+    if(params_num > 6) {
+	// stp x6, x7, [sp, #-0x10]!
+        instr_t * stp4_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X7));
+        ins_list.push_back(stp4_ins);
+        ins_code_list.push_back(0);
+        // sub sp sp 16
+        instr_t* sub4_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(sub4_ins);
+        ins_code_list.push_back(0);
+    }
+}
+
+void
+restore_params_reg(vector<instr_t*> &ins_list, vector<uint> &ins_code_list)
+{
+    if(params_num > 6) {
+	// ldp x6, x7, [sp]
+        instr_t * ldp4_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X7), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+        ins_list.push_back(ldp4_ins);
+        ins_code_list.push_back(0);
+        // add sp sp 16
+        instr_t* add4_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(add4_ins);
+        ins_code_list.push_back(0);
+    }
+    if(params_num > 4) {
+	// ldp x4, x5, [sp]
+        instr_t * ldp3_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X4), opnd_create_reg(DR_REG_X5), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+        ins_list.push_back(ldp3_ins);
+        ins_code_list.push_back(0);
+        // add sp sp 16
+        instr_t* add3_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(add3_ins);
+        ins_code_list.push_back(0);
+    }
+    if(params_num > 2) {
+	// ldp x2, x3, [sp]
+        instr_t * ldp2_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X3), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+        ins_list.push_back(ldp2_ins);
+        ins_code_list.push_back(0);
+        // add sp sp 16
+        instr_t* add2_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(add2_ins);
+        ins_code_list.push_back(0);
+    }
+    // ldp x0, x1, [sp]
+    instr_t * ldp1_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X1), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp1_ins);
+    ins_code_list.push_back(0);
+    // add sp sp 16
+    instr_t* add1_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(add1_ins);
+    ins_code_list.push_back(0);
+}
+
+void
+encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, uint func_addr)
+{
+    Offset file_offset = new_section->getDiskOffset();
+    vector<uint> ins_code_list;
+    vector<instr_t*> ins_list;
+
+    // stp x29, x30, [sp, #-0x10]!
+    instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(stp_ins);
+    ins_code_list.push_back(0);
+
+    // sub sp sp 16
+    instr_t* sub_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(sub_ins);
+    ins_code_list.push_back(0);
+
+    if(params_num > 0) save_params_reg(ins_list, ins_code_list);
+
+    // ldr hook addr and blr hook
+    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((hook_func >> 12) << 12), OPSZ_0));
+    ins_list.push_back(hook_adrp_ins);
+    ins_code_list.push_back(0);
+    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(hook_func & 0xfff));
+    ins_list.push_back(hook_add_off_ins);
+    ins_code_list.push_back(0);
+
+    instr_t* ldr_ins = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
+                opnd_create_base_disp_aarch64(DR_REG_X30, DR_REG_NULL, 0, false,
+                                              0, 0, OPSZ_8));
+    ins_list.push_back(ldr_ins);
+    ins_code_list.push_back(0);
+
+    instr_t * hook_blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(hook_blr_ins);
+    ins_code_list.push_back(0);
+
+    if(params_num > 0) restore_params_reg(ins_list, ins_code_list);
+
+    // blr rank
+    instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
+    ins_list.push_back(adrp_ins);
+    ins_code_list.push_back(0);
+    instr_t* add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(func_addr & 0xfff));
+    ins_list.push_back(add_off_ins);
+    ins_code_list.push_back(0);
+    instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(blr_ins);
+    ins_code_list.push_back(0);
+
+    /*
+    // ldr hook addr and blr hook
+    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((hook_func >> 12) << 12), OPSZ_0));
+    ins_list.push_back(hook_adrp_ins);
+    ins_code_list.push_back(0);
+    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(hook_func & 0xfff));
+    ins_list.push_back(hook_add_off_ins);
+    ins_code_list.push_back(0);
+
+    instr_t* ldr_ins = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
+                opnd_create_base_disp_aarch64(DR_REG_X30, DR_REG_NULL, 0, false,
+                                              0, 0, OPSZ_8));
+    ins_list.push_back(ldr_ins);
+    ins_code_list.push_back(0);
+
+    instr_t * hook_blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(hook_blr_ins);
+    ins_code_list.push_back(0);
+    */
+    for(auto ins : instrs) {
+        int opcode = instr_get_opcode(ins);
+	if(opcode == OP_b) {
+	    // to-do use adrp and blr to replace
+	    uint target = opnd_get_pc(instr_get_target(ins));
+	    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
+    	    ins_list.push_back(adrp_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
+    	    ins_list.push_back(add_off_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    	    ins_list.push_back(blr_ins2);
+    	    ins_code_list.push_back(0);
+	} else {
+	    // if the third ins is cmp, maybe ldp and add will change arithmetic flags?
+	    ins_list.push_back(ins);
+            ins_code_list.push_back(0);
+	}	
+    }
+
+    // ldp x29, x30, [sp, #0x10]
+    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp_ins);
+    ins_code_list.push_back(0);
+
+    // add sp sp 16
+    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(add_ins);
+    ins_code_list.push_back(0);
+
+    // ret
+    instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(ret_ins);
+    ins_code_list.push_back(0);
+
+    encode(ins_list, file_offset, ins_code_list);
+    vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+	rawData[i] = data[i];
+    if(!new_section->setPtrToRawData((void*)rawData, data.size()))
+	cout << "setPtrToRawData err!" << endl;
+}
+
+// instrs.size() == 2, we need to replace 3 ins at all.
+void
+add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, std::string &secName, uint func_addr)
+{
+    unsigned char empty[] = {};
+    int section_size = 56 + ((params_num+1) / 2) * 4 * 4;
+    for(auto ins : instrs) {
+	    if(instr_get_opcode(ins) == OP_b) section_size += 8;
+    }
+
+    symTab->addRegion(base, (void*)(empty), section_size, secName.c_str(), SymtabAPI::Region::RT_TEXT, true);
+    base += section_size;
+
+    SymtabAPI::Region *new_section;
+    if(!symTab->findRegion(new_section, secName.c_str())) 
+	cout << "findRegion err" << endl;
+
+    wrapper_addr = new_section->getMemOffset();
+    encode_new_section(new_section, instrs, func_addr);
+}
+
+static uint special_offset, jump_offset;
+static uint special_code_size = 36, jump_case_size = 40;
+
+// append new ins into .special
+void
+appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section) {
+    Offset file_offset = special_section->getDiskOffset();
+    vector<uint> ins_code_list;
+    vector<instr_t*> ins_list;
+
+    // stp x29, x30, [sp, #-0x10]!
+    instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(stp_ins);
+    ins_code_list.push_back(0);
+
+    // sub sp sp 16
+    instr_t* sub_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(sub_ins);
+    ins_code_list.push_back(0);
+
+    // blr func
+    instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
+    ins_list.push_back(adrp_ins);
+    ins_code_list.push_back(0);
+    instr_t* add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((func_addr << 20) >> 20));
+    ins_list.push_back(add_off_ins);
+    ins_code_list.push_back(0);
+    instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(blr_ins);
+    ins_code_list.push_back(0);
+
+    // ldp x29, x30, [sp, #0x10]
+    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp_ins);
+    ins_code_list.push_back(0);
+
+    // add sp sp 16
+    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(add_ins);
+    ins_code_list.push_back(0);
+
+    ins_list.push_back(ins);
+    ins_code_list.push_back(0);
+
+    // ret
+    instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(ret_ins);
+    ins_code_list.push_back(0);
+
+    encode(ins_list, file_offset, ins_code_list);
+    vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+        rawData[i] = data[i];
+    if(!special_section->patchData(special_offset, (void*)rawData, data.size()))
+        cout << "special_section patchData err!" << endl;
+}
+
+void
+add_case_in_jump_table(SymtabAPI::Region *jumptable, SymtabAPI::Region *special, uint pc_offset) {
+    Offset file_offset = jumptable->getDiskOffset();
+    Offset special_file_offset = special->getDiskOffset();
+    vector<uint> ins_code_list;
+    vector<instr_t*> ins_list;
+
+    // stp x29, x30, [sp, #-0x10]!
+    instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(stp_ins);
+    ins_code_list.push_back(0);
+
+    // sub sp sp 16
+    instr_t* sub_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(sub_ins);
+    ins_code_list.push_back(0);
+
+    // and lr lr 0xfff
+    instr_t* and_ins = INSTR_CREATE_and(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(0xfff));
+    ins_list.push_back(and_ins);
+    ins_code_list.push_back(0);
+
+    // cmp lr (pc_offset & 0xfff)
+    instr_t* cmp_ins = INSTR_CREATE_cmp(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(pc_offset & 0xfff));
+    ins_list.push_back(cmp_ins);
+    ins_code_list.push_back(0);
+
+    // b.ne to ldp
+    instr_t* bne_ins = XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(file_offset + jump_offset + 32));
+    ins_list.push_back(bne_ins);
+    ins_code_list.push_back(0);
+
+    // blr .special+offset special_file_offset + special_offset
+    uint target = special_file_offset + special_offset;
+    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
+    ins_list.push_back(adrp_ins2);
+    ins_code_list.push_back(0);
+    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
+    ins_list.push_back(add_off_ins2);
+    ins_code_list.push_back(0);
+    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(blr_ins2);
+    ins_code_list.push_back(0);
+    
+    // ldp x29, x30, [sp, #0x10]
+    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp_ins);
+    ins_code_list.push_back(0);
+
+    // add sp sp 16
+    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    ins_list.push_back(add_ins);
+    ins_code_list.push_back(0);
+
+    // ret
+    // when new cases added, this ret should be overwritten!
+    instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(ret_ins);
+    ins_code_list.push_back(0);
+
+    encode(ins_list, file_offset, ins_code_list);
+    vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+        rawData[i] = data[i];
+    if(!jumptable->patchData(jump_offset, (void*)rawData, data.size()))
+        cout << "jumptable patchData err!" << endl;
+
+}
+
+// instrs.size() == 1, we need to replace 2 ins at all.
+// pc_offset == i+2 th ins offset
+// (i+2)*4 + text_offset?
+void
+handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t * &ins, uint func_addr, uint pc_offset)
+{
+    // add case in .jumptable, jump_offset
+    // save context (i.e. lr)
+    // get page offset in lr: and lr lr 0xfff
+    // subs lr lr (pc_offset & 0xfff)
+    // b.ne XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(ret addr))
+    // blr (to .special accordingly)
+    // ret
+
+    SymtabAPI::Region *jumptable;
+    if(!symTab->findRegion(jumptable, ".jumptable"))
+        cout << "findRegion .jumptable err" << endl;
+
+
+    SymtabAPI::Region *special_section;
+    if(!symTab->findRegion(special_section, ".special"))
+        cout << "findRegion .special err" << endl;
+
+    add_case_in_jump_table(jumptable, special_section, pc_offset);
+    jump_offset += jump_case_size;
+
+    wrapper_addr = special_section->getDiskOffset() + special_offset;
+    appendCode(func_addr, ins, special_section);
+    special_offset += special_code_size;
+}
+
+void
+modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI::Symtab *symTab)
+{
+    LIEF::ELF::Section* section = binary->text_section();
+    LIEF::span<const unsigned char> text_content = section->content();
+    uint file_offset = section->file_offset();
+    cout << ".text offset = " << file_offset << endl;
+    vector<uint> ins_code_list;
+    vector<instr_t*> decode_list = decode(text_content, file_offset, ins_code_list);
+
+    int count = 0;
+    for(int i = 0; i < decode_list.size(); i++) {
+        if(decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr && i < decode_list.size() - 2) {
+            uint wrapper_addr;
+	    if(instr_get_opcode(decode_list[i+2]) == OP_bcond) {
+		handle_special_case_dyn(symTab, wrapper_addr, decode_list[i+1], func_addr, file_offset + (i+2)*4);
+                instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
+                instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+                decode_list[i] = adrp_ins;
+                decode_list[i+1] = blr_ins;
+                i++;
+	    } else {
+                vector<instr_t *> instrs;
+                // instrs.push_back(decode_list[i]);
+                instrs.push_back(decode_list[i+1]);
+                instrs.push_back(decode_list[i+2]);
+                std::string secName = ".mysection" + std::to_string(i);
+                add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr);
+
+                instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
+	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
+                instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+                decode_list[i] = adrp_ins;
+                decode_list[i+1] = add_ins;
+                decode_list[i+2] = blr_ins;
+                i+=2;
+	    }
+        }
+        count ++;
+    }
+    encode(decode_list, file_offset, ins_code_list);
+
+    SymtabAPI::Region *text_section;
+    if(!symTab->findRegion(text_section, ".text"))
+        cout << "findRegion .text err" << endl;
+    vector<uint8_t> data = getByteslist(decode_list, ins_code_list);
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+        rawData[i] = data[i];
+    if(!text_section->setPtrToRawData((void*)rawData, data.size()))
+        cout << ".text setPtrToRawData err!" << endl;
+    
+}
+
+void addSpecialSectionPages(SymtabAPI::Symtab *symTab) {
+    static unsigned char empty[] = {};
+    int pageSize = 1 << 12;
+
+    base = symTab->getFreeOffset(50*1024*1024);
+    base += (1024*1024);
+    base -= (base & (1024*1024-1));
+
+    symTab->addRegion(base, (void*)(empty), pageSize, ".jumptable", SymtabAPI::Region::RT_TEXT, true);
+
+    SymtabAPI::Region *jumptable_section;
+    if(!symTab->findRegion(jumptable_section, ".jumptable"))
+        cout << "findRegion .jumptable err" << endl;
+    base += pageSize;
+
+    symTab->addRegion(base, (void*)(empty), pageSize, ".special", SymtabAPI::Region::RT_TEXT, true);
+
+    SymtabAPI::Region *special_section;
+    if(!symTab->findRegion(special_section, ".special"))
+        cout << "findRegion .special err" << endl;
+    base += pageSize;
+
+    symTab->addRegion(base, (void*)(empty), pageSize, ".extsym", SymtabAPI::Region::RT_TEXTDATA, true);
+
+    SymtabAPI::Region *extsym_section;
+    if(!symTab->findRegion(extsym_section, ".extsym"))
+        cout << "findRegion .extsym err" << endl;
+    base += pageSize;
+}
+
+Address addExternalFuncSymbol(SymtabAPI::Symtab *symTab, SymtabAPI::Symtab *lib, string func_name) {
+    vector<SymtabAPI::Function*> ret;
+    if(!lib->findFunctionsByName(ret, move(func_name))) {
+	cout << "cannot find " << endl;
+	return false;
+    }
+
+    vector<SymtabAPI::Symbol *> syms;
+
+    if(!ret[0]->getSymbols(syms)) {
+	cout << "cannot find symbols that refer " << endl;
+        return false;
+    }
+
+    // try to find a dynamic symbol
+    // (take first static symbol if none are found)
+    SymtabAPI::Symbol *referring = syms[0];
+    for (unsigned k=0; k<syms.size(); k++) {
+        if (syms[k]->isInDynSymtab()) {
+            referring = syms[k];
+            break;
+        }
+    }
+
+    unsigned int jump_slot_size;
+    switch (symTab->getAddressWidth()) {
+    case 4: jump_slot_size =  4; break; // l: not needed
+    case 8:
+      jump_slot_size = 24;
+      break;
+    default: assert(0 && "Encountered unknown address width");
+    }
+
+    Address relocation_address = base;
+    base += jump_slot_size;
+
+    Dyninst::SymtabAPI::Region *extsym = NULL;
+    symTab->findRegion(extsym, ".extsym");
+    assert(extsym);
+    // Create the relocationEntry
+    Dyninst::SymtabAPI::relocationEntry localRel(relocation_address, referring->getMangledName(), referring,
+                             Dyninst::SymtabAPI::relocationEntry::getGlobalRelType(symTab->getAddressWidth(), referring));
+
+    symTab->addExternalSymbolReference(referring, extsym, localRel);
+
+    return relocation_address;
+}
+
+/* agrv[1] == <exe> argv[2] == <lib> argv[3] == <func>*/
+int main(int argc, char** argv) {
+    std::unique_ptr<const Binary> binary{Parser::parse(argv[1])};
+    char *binaryPath = argv[2];
+    SymtabAPI::Symtab *symTab, *libhook;
+
+    string libhookPathStr(binaryPath);
+    if(!SymtabAPI::Symtab::openFile(libhook, libhookPathStr)) {
+        cerr << "error: file cannot be parsed";
+        return -1;
+    }
+
+    /*
+    vector<SymtabAPI::Symbol *> res;
+    if(!libhook->getAllSymbols(res)) {
+	cerr << "error: get all funcs";
+        return -1;
+    }
+    for(auto s : res) {
+	cout << s->getMangledName() << endl;
+    }
+    */
+
+    binaryPath = argv[1];
+    string binaryPathStr(binaryPath);
+
+    if(!SymtabAPI::Symtab::openFile(symTab, binaryPathStr)) {
+        cerr << "error: file cannot be parsed";
+        return -1;
+    }
+
+    vector<SymtabAPI::Function*> target_func;
+    if(!symTab->findFunctionsByName(target_func, move(argv[3]))) {
+        cout << "cannot find " << argv[3] << endl;
+        return -1;
+    }
+
+    uint func_addr = target_func[0]->getOffset();
+    printf("target_func offset: %llx\n", func_addr);
+
+    vector<SymtabAPI::localVar *> params;
+    if(!target_func[0]->getParams(params)) {
+        cout << "cannot getParams for " << argv[3] << endl;
+        return -1;
+    }
+
+    params_num = params.size();
+    printf("params_num: %d\n", params_num);
+
+    addSpecialSectionPages(symTab);
+
+    string func_name("hook");
+    hook_func = addExternalFuncSymbol(symTab, libhook, func_name);
+    assert(hook_func);
+    printf("hook_func = %llx\n", hook_func);
+
+    modify_text_dyn(binary, func_addr, symTab);
+
+    if(!symTab->addLibraryPrereq("./libhook.so")) {
+        cerr << "error: add library";
+        return -1;
+    }
+
+    /* 
+    vector<SymtabAPI::Module *>mods;
+    if(!symTab->getAllModules(mods)) {
+	cerr << "error: get all mods";
+        return -1;
+    }
+
+    for(auto m : mods) {
+        cout << m->fileName() << endl;
+    }
+
+    vector<SymtabAPI::Function *> ret;
+    if(!symTab->getAllFunctions(ret)) {
+	cerr << "error: get all funcs";
+        return -1;
+    }
+
+    for(auto f : ret) {
+	cout << f->getName() << endl;
+    }
+
+    vector<SymtabAPI::Symbol *> res;
+    if(!symTab->getAllSymbols(res)) {
+	cerr << "error: get all funcs";
+        return -1;
+    }
+    
+    for(auto s : res) {
+	cout << s->getMangledName() << endl;
+    }
+    */
+
+    if (!symTab->emit("is.new.dyn")) {
+	 cout << "emit new binary error!\n";
+         return -1;
+    }
+
     return 0;
 }

@@ -412,6 +412,19 @@ instr_num_dsts(instr_t *instr)
 #    define instr_get_dst INSTR_GET_DST
 #    define instr_get_target INSTR_GET_TARGET
 
+void
+instr_set_target(instr_t *instr, opnd_t target)
+{
+    CLIENT_ASSERT(instr->num_srcs >= 1, "instr_set_target: instr has no sources");
+    instr->src0 = target;
+    /* if we're modifying operands, don't use original bits to encode,
+     * except for jecxz/loop*
+     */
+    instr_being_modified(instr, false);
+    /* assume all operands are valid */
+    instr_set_operands_valid(instr, true);
+}
+
 INSTR_INLINE
 void
 instr_set_note(instr_t *instr, void *value)

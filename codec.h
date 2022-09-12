@@ -90,6 +90,9 @@ opnd_create_pc(app_pc pc);
 bool
 opnd_is_pc(opnd_t op);
 
+void
+instr_set_note(instr_t *instr, void *value);
+
 typedef enum {
     BYTE_REG = 0,
     HALF_REG = 1,
