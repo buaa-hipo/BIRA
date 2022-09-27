@@ -5250,58 +5250,31 @@ getByteslist(vector<instr_t*> &instr_list, vector<uint> &ins_code_list)
     return data;
 }
 
-static Address base, hook_func;
+static Address base, entry_func, exit_func;
 uint8_t params_num;
 
 void
-save_params_reg(vector<instr_t*> &ins_list, vector<uint> &ins_code_list)
+save_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg_id_t> &regs)
 {
-    // stp x0, x1, [sp, #-0x10]!
-    instr_t * stp1_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X1));
-    ins_list.push_back(stp1_ins);
-    ins_code_list.push_back(0);
-    // sub sp sp 16
-    instr_t* sub1_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(sub1_ins);
-    ins_code_list.push_back(0);
-    if(params_num > 2) {
-	// stp x2, x3, [sp, #-0x10]!
-        instr_t * stp2_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X3));
-        ins_list.push_back(stp2_ins);
-        ins_code_list.push_back(0);
-        // sub sp sp 16
-        instr_t* sub2_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-        ins_list.push_back(sub2_ins);
-        ins_code_list.push_back(0);
-    }
-    if(params_num > 4) {
-	// stp x4, x5, [sp, #-0x10]!
-        instr_t * stp3_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X4), opnd_create_reg(DR_REG_X5));
-        ins_list.push_back(stp3_ins);
-        ins_code_list.push_back(0);
-        // sub sp sp 16
-        instr_t* sub3_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-        ins_list.push_back(sub3_ins);
-        ins_code_list.push_back(0);
-    }
-    if(params_num > 6) {
-	// stp x6, x7, [sp, #-0x10]!
-        instr_t * stp4_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X7));
-        ins_list.push_back(stp4_ins);
-        ins_code_list.push_back(0);
-        // sub sp sp 16
-        instr_t* sub4_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-        ins_list.push_back(sub4_ins);
-        ins_code_list.push_back(0);
+	// analyze the code in tracelib?
+    for(int i = 0; i < regs.size() - 1; i+=2) {
+	// stp reg0, reg1, [sp, #-0x10]!
+    	instr_t * stp1_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(regs[i]), opnd_create_reg(regs[i+1]));
+    	ins_list.push_back(stp1_ins);
+    	ins_code_list.push_back(0);
+    	// sub sp sp 16
+    	instr_t* sub1_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+    	ins_list.push_back(sub1_ins);
+    	ins_code_list.push_back(0);
     }
 }
 
 void
-restore_params_reg(vector<instr_t*> &ins_list, vector<uint> &ins_code_list)
+restore_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg_id_t> &regs)
 {
-    if(params_num > 6) {
-	// ldp x6, x7, [sp]
-        instr_t * ldp4_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X7), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    for(int i = regs.size() - 1; i >=0 ; i-=2) {
+	// ldp reg1, reg0, [sp]
+        instr_t * ldp4_ins = INSTR_CREATE_ldp(opnd_create_reg(regs[i-1]), opnd_create_reg(regs[i]), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
         ins_list.push_back(ldp4_ins);
         ins_code_list.push_back(0);
         // add sp sp 16
@@ -5309,38 +5282,10 @@ restore_params_reg(vector<instr_t*> &ins_list, vector<uint> &ins_code_list)
         ins_list.push_back(add4_ins);
         ins_code_list.push_back(0);
     }
-    if(params_num > 4) {
-	// ldp x4, x5, [sp]
-        instr_t * ldp3_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X4), opnd_create_reg(DR_REG_X5), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
-        ins_list.push_back(ldp3_ins);
-        ins_code_list.push_back(0);
-        // add sp sp 16
-        instr_t* add3_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-        ins_list.push_back(add3_ins);
-        ins_code_list.push_back(0);
-    }
-    if(params_num > 2) {
-	// ldp x2, x3, [sp]
-        instr_t * ldp2_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X3), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
-        ins_list.push_back(ldp2_ins);
-        ins_code_list.push_back(0);
-        // add sp sp 16
-        instr_t* add2_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-        ins_list.push_back(add2_ins);
-        ins_code_list.push_back(0);
-    }
-    // ldp x0, x1, [sp]
-    instr_t * ldp1_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X1), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
-    ins_list.push_back(ldp1_ins);
-    ins_code_list.push_back(0);
-    // add sp sp 16
-    instr_t* add1_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(add1_ins);
-    ins_code_list.push_back(0);
 }
 
 void
-encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, uint func_addr)
+encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, uint func_addr, vector<reg_id_t> &regs)
 {
     Offset file_offset = new_section->getDiskOffset();
     vector<uint> ins_code_list;
@@ -5351,18 +5296,38 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
     ins_list.push_back(stp_ins);
     ins_code_list.push_back(0);
 
-    // sub sp sp 16
-    instr_t* sub_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(sub_ins);
+    instr_t * mrs_ins1 = INSTR_CREATE_mrs(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_NZCV));
+    ins_list.push_back(mrs_ins1);
+    ins_code_list.push_back(0);
+    instr_t * mrs_ins2 = INSTR_CREATE_mrs(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_FPCR));
+    ins_list.push_back(mrs_ins2);
+    ins_code_list.push_back(0);
+    instr_t * stp_aflgs_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -32, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(stp_aflgs_ins);
+    ins_code_list.push_back(0);
+    instr_t * mrs_ins3 = INSTR_CREATE_mrs(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_FPSR));
+    ins_list.push_back(mrs_ins3);
+    ins_code_list.push_back(0);
+    instr_t * stp_aflgs_ins2 = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -48, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(stp_aflgs_ins2);
+    ins_code_list.push_back(0);
+    // sub sp sp 48
+    instr_t* sub_aflgs_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(48));
+    ins_list.push_back(sub_aflgs_ins);
     ins_code_list.push_back(0);
 
-    if(params_num > 0) save_params_reg(ins_list, ins_code_list);
+/*
+    instr_t * mov_sp_to_x29 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_sp_to_x29);
+    ins_code_list.push_back(0);
+*/
+    save_regs(ins_list, ins_code_list, regs);
 
     // ldr hook addr and blr hook
-    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((hook_func >> 12) << 12), OPSZ_0));
+    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((entry_func >> 12) << 12), OPSZ_0));
     ins_list.push_back(hook_adrp_ins);
     ins_code_list.push_back(0);
-    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(hook_func & 0xfff));
+    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(entry_func & 0xfff));
     ins_list.push_back(hook_add_off_ins);
     ins_code_list.push_back(0);
 
@@ -5375,10 +5340,31 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
     instr_t * hook_blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
     ins_list.push_back(hook_blr_ins);
     ins_code_list.push_back(0);
+/*
+    instr_t * mov_x29_to_xsp = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_X29), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x29_to_xsp);
+    ins_code_list.push_back(0);
+*/  
+    restore_regs(ins_list, ins_code_list, regs);
+    // ldp x29, x30, [sp, #0x10]
+    instr_t * ldp_aflgs_ins2 = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp_aflgs_ins2);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins3 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_FPSR), opnd_create_reg(DR_REG_X29));
+    ins_list.push_back(msr_ins3);
+    ins_code_list.push_back(0);
+    instr_t * ldp_aflgs_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 16, OPSZ_16));
+    ins_list.push_back(ldp_aflgs_ins);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins2 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_FPCR), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(msr_ins2);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins1 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_NZCV), opnd_create_reg(DR_REG_X29));
+    ins_list.push_back(msr_ins1);
+    ins_code_list.push_back(0);
 
-    if(params_num > 0) restore_params_reg(ins_list, ins_code_list);
-
-    // blr rank
+    
+    // blr funcdr_insert_clean_call
     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
     ins_list.push_back(adrp_ins);
     ins_code_list.push_back(0);
@@ -5388,26 +5374,67 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
     instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
     ins_list.push_back(blr_ins);
     ins_code_list.push_back(0);
-
-    /*
+/*
+    // need to save and restore regs after the func?
+    save_regs(ins_list, ins_code_list, regs);
     // ldr hook addr and blr hook
-    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((hook_func >> 12) << 12), OPSZ_0));
-    ins_list.push_back(hook_adrp_ins);
+    instr_t * hook_adrp_ins_after = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((exit_func >> 12) << 12), OPSZ_0));
+    ins_list.push_back(hook_adrp_ins_after);
     ins_code_list.push_back(0);
-    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(hook_func & 0xfff));
-    ins_list.push_back(hook_add_off_ins);
+    instr_t* hook_add_off_ins_after = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(exit_func & 0xfff));
+    ins_list.push_back(hook_add_off_ins_after);
     ins_code_list.push_back(0);
 
-    instr_t* ldr_ins = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
+    instr_t* ldr_ins_after = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
                 opnd_create_base_disp_aarch64(DR_REG_X30, DR_REG_NULL, 0, false,
                                               0, 0, OPSZ_8));
-    ins_list.push_back(ldr_ins);
+    ins_list.push_back(ldr_ins_after);
     ins_code_list.push_back(0);
 
-    instr_t * hook_blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(hook_blr_ins);
+    instr_t * hook_blr_ins_after = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(hook_blr_ins_after);
+    ins_code_list.push_back(0);
+
+    restore_regs(ins_list, ins_code_list, regs);
+*/
+    // todo use mov x29 sp first
+    // mov sp x29 to retrieve
+    // add sp sp 48
+
+    /*
+    instr_t * ldp_aflgs_ins22 = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
+    ins_list.push_back(ldp_aflgs_ins22);
+    ins_code_list.push_back(0);
+    instr_t * mov_x30_to_xsp = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x30_to_xsp);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins32 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_FPSR), opnd_create_reg(DR_REG_X29));
+    ins_list.push_back(msr_ins32);
+    ins_code_list.push_back(0);
+    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(48));
+    ins_list.push_back(add_ins);
     ins_code_list.push_back(0);
     */
+    // ldp x29, x30, [sp, #0x10]
+    /*
+    instr_t * ldp_aflgs_ins222 = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16));
+    ins_list.push_back(ldp_aflgs_ins222);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins22 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_FPCR), opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(msr_ins22);
+    ins_code_list.push_back(0);
+    instr_t * msr_ins12 = INSTR_CREATE_msr(opnd_create_reg(DR_REG_NZCV), opnd_create_reg(DR_REG_X29));
+    ins_list.push_back(msr_ins12);
+    ins_code_list.push_back(0);
+    */
+    // ldp x29, x30, [sp, #0x10]
+    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(48));
+    ins_list.push_back(add_ins);
+    ins_code_list.push_back(0);
+    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16));
+    ins_list.push_back(ldp_ins);
+    ins_code_list.push_back(0);
+
     for(auto ins : instrs) {
         int opcode = instr_get_opcode(ins);
 	if(opcode == OP_b) {
@@ -5429,16 +5456,6 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
 	}	
     }
 
-    // ldp x29, x30, [sp, #0x10]
-    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
-    ins_list.push_back(ldp_ins);
-    ins_code_list.push_back(0);
-
-    // add sp sp 16
-    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(add_ins);
-    ins_code_list.push_back(0);
-
     // ret
     instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
     ins_list.push_back(ret_ins);
@@ -5455,10 +5472,10 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
 
 // instrs.size() == 2, we need to replace 3 ins at all.
 void
-add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, std::string &secName, uint func_addr)
+add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, std::string &secName, uint func_addr, vector<reg_id_t> &regs)
 {
     unsigned char empty[] = {};
-    int section_size = 56 + ((params_num+1) / 2) * 4 * 4;
+    int section_size = 72 - 16*2 + 44 + regs.size() * 16;// + regs.size() * 32;
     for(auto ins : instrs) {
 	    if(instr_get_opcode(ins) == OP_b) section_size += 8;
     }
@@ -5471,15 +5488,14 @@ add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_
 	cout << "findRegion err" << endl;
 
     wrapper_addr = new_section->getMemOffset();
-    encode_new_section(new_section, instrs, func_addr);
+    encode_new_section(new_section, instrs, func_addr, regs);
 }
 
 static uint special_offset, jump_offset;
-static uint special_code_size = 36, jump_case_size = 40;
 
 // append new ins into .special
 void
-appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section) {
+appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section, vector<reg_id_t> &regs) {
     Offset file_offset = special_section->getDiskOffset();
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
@@ -5494,6 +5510,28 @@ appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section) {
     ins_list.push_back(sub_ins);
     ins_code_list.push_back(0);
 
+    save_regs(ins_list, ins_code_list, regs);
+
+    // ldr hook addr and blr hook
+    instr_t * hook_adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((entry_func >> 12) << 12), OPSZ_0));
+    ins_list.push_back(hook_adrp_ins);
+    ins_code_list.push_back(0);
+    instr_t* hook_add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(entry_func & 0xfff));
+    ins_list.push_back(hook_add_off_ins);
+    ins_code_list.push_back(0);
+
+    instr_t* ldr_ins = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
+                opnd_create_base_disp_aarch64(DR_REG_X30, DR_REG_NULL, 0, false,
+                                              0, 0, OPSZ_8));
+    ins_list.push_back(ldr_ins);
+    ins_code_list.push_back(0);
+
+    instr_t * hook_blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(hook_blr_ins);
+    ins_code_list.push_back(0);
+
+    restore_regs(ins_list, ins_code_list, regs);
+
     // blr func
     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
     ins_list.push_back(adrp_ins);
@@ -5505,6 +5543,26 @@ appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section) {
     ins_list.push_back(blr_ins);
     ins_code_list.push_back(0);
 
+    /*
+    // need to save and restore regs after the func?
+    // ldr hook addr and blr hook
+    instr_t * hook_adrp_ins_after = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((exit_func >> 12) << 12), OPSZ_0));
+    ins_list.push_back(hook_adrp_ins_after);
+    ins_code_list.push_back(0);
+    instr_t* hook_add_off_ins_after = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(exit_func & 0xfff));
+    ins_list.push_back(hook_add_off_ins_after);
+    ins_code_list.push_back(0);
+
+    instr_t* ldr_ins_after = INSTR_CREATE_ldr(opnd_create_reg(DR_REG_X30),
+                opnd_create_base_disp_aarch64(DR_REG_X30, DR_REG_NULL, 0, false,
+                                              0, 0, OPSZ_8));
+    ins_list.push_back(ldr_ins_after);
+    ins_code_list.push_back(0);
+
+    instr_t * hook_blr_ins_after = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    ins_list.push_back(hook_blr_ins);
+    ins_code_list.push_back(0);
+    */
     // ldp x29, x30, [sp, #0x10]
     instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
     ins_list.push_back(ldp_ins);
@@ -5606,7 +5664,7 @@ add_case_in_jump_table(SymtabAPI::Region *jumptable, SymtabAPI::Region *special,
 // pc_offset == i+2 th ins offset
 // (i+2)*4 + text_offset?
 void
-handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t * &ins, uint func_addr, uint pc_offset)
+handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t * &ins, uint func_addr, uint pc_offset, vector<reg_id_t> &regs)
 {
     // add case in .jumptable, jump_offset
     // save context (i.e. lr)
@@ -5615,6 +5673,7 @@ handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t *
     // b.ne XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(ret addr))
     // blr (to .special accordingly)
     // ret
+    uint special_code_size = 68 - 16 + regs.size() * 16, jump_case_size = 44;
 
     SymtabAPI::Region *jumptable;
     if(!symTab->findRegion(jumptable, ".jumptable"))
@@ -5629,8 +5688,47 @@ handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t *
     jump_offset += jump_case_size;
 
     wrapper_addr = special_section->getDiskOffset() + special_offset;
-    appendCode(func_addr, ins, special_section);
+    appendCode(func_addr, ins, special_section, regs);
     special_offset += special_code_size;
+}
+
+vector<reg_id_t>
+getUsedRegs(vector<instr_t*> decode_list, int index)
+{
+    set<reg_id_t> reg_set;
+    for(int i = 0; i < decode_list.size(); i++) {
+	if(decode_list[i]->opcode == OP_ret || decode_list[i]->opcode == OP_br || decode_list[i]->opcode == OP_b) break;
+	int src_num = instr_num_srcs(decode_list[i]);
+	for(int j = 0; j < src_num; j++) {
+	    // reg_get_size
+    	    reg_id_t reg = opnd_get_reg(instr_get_src(decode_list[i], j));
+	    if(reg == DR_REG_X29 || reg == DR_REG_X30) continue;
+	    if(!(reg >= DR_REG_X0 && reg <= DR_REG_X30)) continue;
+	    reg_set.insert(reg);
+	}
+    }
+    
+    if(params_num > 0) {
+        reg_set.insert(DR_REG_X0);
+        reg_set.insert(DR_REG_X1);
+    }
+    if(params_num > 2) {
+        reg_set.insert(DR_REG_X2);
+        reg_set.insert(DR_REG_X3);
+    }
+    if(params_num > 4) {
+        reg_set.insert(DR_REG_X4);
+        reg_set.insert(DR_REG_X5);
+    }
+    if(params_num > 6) {
+        reg_set.insert(DR_REG_X6);
+        reg_set.insert(DR_REG_X7);
+    }
+
+    vector<reg_id_t> regs;
+    for(auto reg : reg_set) regs.push_back(reg);
+    if(regs.size() % 2 != 0) regs.push_back(DR_REG_X30);
+    return regs;
 }
 
 void
@@ -5645,10 +5743,17 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 
     int count = 0;
     for(int i = 0; i < decode_list.size(); i++) {
+	if(decode_list[i]->opcode == OP_bl) {
+	    printf("%llx\n", opnd_get_pc(instr_get_target(decode_list[i])));
+	}
+
         if(decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr && i < decode_list.size() - 2) {
+	    printf("Got it!\n");
             uint wrapper_addr;
+	    vector<reg_id_t> regs = getUsedRegs(decode_list, i+1);
 	    if(instr_get_opcode(decode_list[i+2]) == OP_bcond) {
-		handle_special_case_dyn(symTab, wrapper_addr, decode_list[i+1], func_addr, file_offset + (i+2)*4);
+		continue;
+		handle_special_case_dyn(symTab, wrapper_addr, decode_list[i+1], func_addr, file_offset + (i+2)*4, regs);
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                 instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
                 decode_list[i] = adrp_ins;
@@ -5660,7 +5765,8 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
                 instrs.push_back(decode_list[i+1]);
                 instrs.push_back(decode_list[i+2]);
                 std::string secName = ".mysection" + std::to_string(i);
-                add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr);
+		// if(secName == ".mysection1044") continue;
+                add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, regs);
 
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
 	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
@@ -5750,7 +5856,7 @@ Address addExternalFuncSymbol(SymtabAPI::Symtab *symTab, SymtabAPI::Symtab *lib,
     default: assert(0 && "Encountered unknown address width");
     }
 
-    Address relocation_address = base;
+    Address relocation_address = base - 0x1000;// add into .extsym
     base += jump_slot_size;
 
     Dyninst::SymtabAPI::Region *extsym = NULL;
@@ -5807,8 +5913,9 @@ int main(int argc, char** argv) {
 
     vector<SymtabAPI::localVar *> params;
     if(!target_func[0]->getParams(params)) {
-        cout << "cannot getParams for " << argv[3] << endl;
-        return -1;
+        params_num = 0;
+	// cout << "cannot getParams for " << argv[3] << endl;
+        //return -1;
     }
 
     params_num = params.size();
@@ -5816,14 +5923,19 @@ int main(int argc, char** argv) {
 
     addSpecialSectionPages(symTab);
 
-    string func_name("hook");
-    hook_func = addExternalFuncSymbol(symTab, libhook, func_name);
-    assert(hook_func);
-    printf("hook_func = %llx\n", hook_func);
+    string entry_func_name("trace_entry_func");
+    entry_func = addExternalFuncSymbol(symTab, libhook, entry_func_name);
+    assert(entry_func);
+    printf("entry_func = %llx\n", entry_func);
+
+    string exit_func_name("trace_exit_func");
+    exit_func = addExternalFuncSymbol(symTab, libhook, exit_func_name);
+    assert(exit_func);
+    printf("exit_func = %llx\n", exit_func);
 
     modify_text_dyn(binary, func_addr, symTab);
 
-    if(!symTab->addLibraryPrereq("./libhook.so")) {
+    if(!symTab->addLibraryPrereq("/home/lkl/BIRA/build/libhook.so")) {
         cerr << "error: add library";
         return -1;
     }
@@ -5859,8 +5971,10 @@ int main(int argc, char** argv) {
 	cout << s->getMangledName() << endl;
     }
     */
+    string outfile(argv[1]);
+    outfile += ".dyn"; 
 
-    if (!symTab->emit("is.new.dyn")) {
+    if (!symTab->emit(outfile)) {
 	 cout << "emit new binary error!\n";
          return -1;
     }

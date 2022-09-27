@@ -4478,6 +4478,11 @@ instr_create_2dst_1src(int opcode, opnd_t dst1, opnd_t dst2, opnd_t src)
 #define INSTR_CREATE_ldp(rt1, rt2, mem) \
     instr_create_2dst_1src(OP_ldp, rt1, rt2, mem)
 
+#define INSTR_CREATE_mrs(Xt, sysreg) \
+    instr_create_1dst_1src(OP_mrs, (Xt), (sysreg))
+#define INSTR_CREATE_msr(sysreg, Xt) \
+    instr_create_1dst_1src(OP_msr, (sysreg), (Xt))
+
 /**
  * Set the predication value for an instruction.
  */
