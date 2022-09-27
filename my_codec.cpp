@@ -5285,7 +5285,7 @@ restore_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg
 }
 
 void
-encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, uint func_addr, vector<reg_id_t> &regs)
+encode_new_section(SymtabAPI::Region *new_section, instr_t * ins, uint func_addr, vector<reg_id_t> &regs)
 {
     Offset file_offset = new_section->getDiskOffset();
     vector<uint> ins_code_list;
@@ -5435,26 +5435,8 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
     ins_list.push_back(ldp_ins);
     ins_code_list.push_back(0);
 
-    for(auto ins : instrs) {
-        int opcode = instr_get_opcode(ins);
-	if(opcode == OP_b) {
-	    // to-do use adrp and blr to replace
-	    uint target = opnd_get_pc(instr_get_target(ins));
-	    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
-    	    ins_list.push_back(adrp_ins2);
-    	    ins_code_list.push_back(0);
-    	    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
-    	    ins_list.push_back(add_off_ins2);
-    	    ins_code_list.push_back(0);
-    	    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
-    	    ins_list.push_back(blr_ins2);
-    	    ins_code_list.push_back(0);
-	} else {
-	    // if the third ins is cmp, maybe ldp and add will change arithmetic flags?
-	    ins_list.push_back(ins);
-            ins_code_list.push_back(0);
-	}	
-    }
+    ins_list.push_back(ins);
+    ins_code_list.push_back(0);
 
     // ret
     instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
@@ -5470,15 +5452,12 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &instrs, ui
 	cout << "setPtrToRawData err!" << endl;
 }
 
-// instrs.size() == 2, we need to replace 3 ins at all.
+// instrs.size() == 1, we need to replace 2 ins at all.
 void
-add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, std::string &secName, uint func_addr, vector<reg_id_t> &regs)
+add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t * &ins, std::string &secName, uint func_addr, vector<reg_id_t> &regs)
 {
     unsigned char empty[] = {};
     int section_size = 72 - 16*2 + 44 + regs.size() * 16;// + regs.size() * 32;
-    for(auto ins : instrs) {
-	    if(instr_get_opcode(ins) == OP_b) section_size += 8;
-    }
 
     symTab->addRegion(base, (void*)(empty), section_size, secName.c_str(), SymtabAPI::Region::RT_TEXT, true);
     base += section_size;
@@ -5488,14 +5467,14 @@ add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_
 	cout << "findRegion err" << endl;
 
     wrapper_addr = new_section->getMemOffset();
-    encode_new_section(new_section, instrs, func_addr, regs);
+    encode_new_section(new_section, ins, func_addr, regs);
 }
 
-static uint special_offset, jump_offset;
+static uint special_offset;
 
 // append new ins into .special
 void
-appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section, vector<reg_id_t> &regs) {
+appendCode(uint func_addr, vector<instr_t *> &instrs, SymtabAPI::Region *special_section, vector<reg_id_t> &regs) {
     Offset file_offset = special_section->getDiskOffset();
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
@@ -5573,9 +5552,26 @@ appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section, vec
     ins_list.push_back(add_ins);
     ins_code_list.push_back(0);
 
-    ins_list.push_back(ins);
-    ins_code_list.push_back(0);
-
+    for(auto ins : instrs) {
+        int opcode = instr_get_opcode(ins);
+	if(opcode == OP_b) {
+	    // to-do use adrp and blr to replace
+	    uint target = opnd_get_pc(instr_get_target(ins));
+	    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
+    	    ins_list.push_back(adrp_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
+    	    ins_list.push_back(add_off_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    	    ins_list.push_back(blr_ins2);
+    	    ins_code_list.push_back(0);
+	} else {
+	    // if the third ins is cmp, maybe ldp and add will change arithmetic flags?
+	    ins_list.push_back(ins);
+            ins_code_list.push_back(0);
+	}	
+    }
     // ret
     instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
     ins_list.push_back(ret_ins);
@@ -5590,105 +5586,33 @@ appendCode(uint func_addr, instr_t *ins, SymtabAPI::Region *special_section, vec
         cout << "special_section patchData err!" << endl;
 }
 
-void
-add_case_in_jump_table(SymtabAPI::Region *jumptable, SymtabAPI::Region *special, uint pc_offset) {
-    Offset file_offset = jumptable->getDiskOffset();
-    Offset special_file_offset = special->getDiskOffset();
-    vector<uint> ins_code_list;
-    vector<instr_t*> ins_list;
-
-    // stp x29, x30, [sp, #-0x10]!
-    instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(stp_ins);
-    ins_code_list.push_back(0);
-
-    // sub sp sp 16
-    instr_t* sub_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(sub_ins);
-    ins_code_list.push_back(0);
-
-    // and lr lr 0xfff
-    instr_t* and_ins = INSTR_CREATE_and(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(0xfff));
-    ins_list.push_back(and_ins);
-    ins_code_list.push_back(0);
-
-    // cmp lr (pc_offset & 0xfff)
-    instr_t* cmp_ins = INSTR_CREATE_cmp(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(pc_offset & 0xfff));
-    ins_list.push_back(cmp_ins);
-    ins_code_list.push_back(0);
-
-    // b.ne to ldp
-    instr_t* bne_ins = XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(file_offset + jump_offset + 32));
-    ins_list.push_back(bne_ins);
-    ins_code_list.push_back(0);
-
-    // blr .special+offset special_file_offset + special_offset
-    uint target = special_file_offset + special_offset;
-    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
-    ins_list.push_back(adrp_ins2);
-    ins_code_list.push_back(0);
-    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
-    ins_list.push_back(add_off_ins2);
-    ins_code_list.push_back(0);
-    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(blr_ins2);
-    ins_code_list.push_back(0);
-    
-    // ldp x29, x30, [sp, #0x10]
-    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, 0, OPSZ_16));
-    ins_list.push_back(ldp_ins);
-    ins_code_list.push_back(0);
-
-    // add sp sp 16
-    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
-    ins_list.push_back(add_ins);
-    ins_code_list.push_back(0);
-
-    // ret
-    // when new cases added, this ret should be overwritten!
-    instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(ret_ins);
-    ins_code_list.push_back(0);
-
-    encode(ins_list, file_offset, ins_code_list);
-    vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
-    unsigned char* rawData = new unsigned char[data.size()];
-    for(int i = 0; i < data.size(); i++)
-        rawData[i] = data[i];
-    if(!jumptable->patchData(jump_offset, (void*)rawData, data.size()))
-        cout << "jumptable patchData err!" << endl;
-
-}
-
-// instrs.size() == 1, we need to replace 2 ins at all.
+// instrs.size() == 2, we need to replace 3 ins at all.
+// no jumptable needed, just using adrp, add off, blr
 // pc_offset == i+2 th ins offset
 // (i+2)*4 + text_offset?
 void
-handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, instr_t * &ins, uint func_addr, uint pc_offset, vector<reg_id_t> &regs)
+handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, uint func_addr, uint pc_offset, vector<reg_id_t> &regs)
 {
-    // add case in .jumptable, jump_offset
     // save context (i.e. lr)
     // get page offset in lr: and lr lr 0xfff
     // subs lr lr (pc_offset & 0xfff)
     // b.ne XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(ret addr))
     // blr (to .special accordingly)
     // ret
-    uint special_code_size = 68 - 16 + regs.size() * 16, jump_case_size = 44;
-
-    SymtabAPI::Region *jumptable;
-    if(!symTab->findRegion(jumptable, ".jumptable"))
-        cout << "findRegion .jumptable err" << endl;
-
+    uint special_code_size = 68 - 16 + regs.size() * 16;
+    /*
+    int section_size = 72 - 16*2 + 44 + regs.size() * 16;// + regs.size() * 32;
+    for(auto ins : instrs) {
+	    if(instr_get_opcode(ins) == OP_b) section_size += 8;
+    }
+    */
 
     SymtabAPI::Region *special_section;
     if(!symTab->findRegion(special_section, ".special"))
         cout << "findRegion .special err" << endl;
 
-    add_case_in_jump_table(jumptable, special_section, pc_offset);
-    jump_offset += jump_case_size;
-
     wrapper_addr = special_section->getDiskOffset() + special_offset;
-    appendCode(func_addr, ins, special_section, regs);
+    appendCode(func_addr, instrs, special_section, regs);
     special_offset += special_code_size;
 }
 
@@ -5752,8 +5676,10 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
             uint wrapper_addr;
 	    vector<reg_id_t> regs = getUsedRegs(decode_list, i+1);
 	    if(instr_get_opcode(decode_list[i+2]) == OP_bcond) {
-		continue;
-		handle_special_case_dyn(symTab, wrapper_addr, decode_list[i+1], func_addr, file_offset + (i+2)*4, regs);
+                std::string secName = ".mysection" + std::to_string(i);
+		// if(secName == ".mysection1044") continue;
+                add_new_section_dyn(symTab, wrapper_addr, decode_list[i+1], secName, func_addr, regs);
+
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                 instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
                 decode_list[i] = adrp_ins;
@@ -5764,9 +5690,8 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
                 // instrs.push_back(decode_list[i]);
                 instrs.push_back(decode_list[i+1]);
                 instrs.push_back(decode_list[i+2]);
-                std::string secName = ".mysection" + std::to_string(i);
-		// if(secName == ".mysection1044") continue;
-                add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, regs);
+		cout << "special added!\n";
+		handle_special_case_dyn(symTab, wrapper_addr, instrs, func_addr, file_offset + (i+2)*4, regs);
 
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
 	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
@@ -5801,14 +5726,7 @@ void addSpecialSectionPages(SymtabAPI::Symtab *symTab) {
     base += (1024*1024);
     base -= (base & (1024*1024-1));
 
-    symTab->addRegion(base, (void*)(empty), pageSize, ".jumptable", SymtabAPI::Region::RT_TEXT, true);
-
-    SymtabAPI::Region *jumptable_section;
-    if(!symTab->findRegion(jumptable_section, ".jumptable"))
-        cout << "findRegion .jumptable err" << endl;
-    base += pageSize;
-
-    symTab->addRegion(base, (void*)(empty), pageSize, ".special", SymtabAPI::Region::RT_TEXT, true);
+    symTab->addRegion(base, (void*)(empty), 4 * pageSize, ".special", SymtabAPI::Region::RT_TEXT, true);
 
     SymtabAPI::Region *special_section;
     if(!symTab->findRegion(special_section, ".special"))
@@ -5823,6 +5741,7 @@ void addSpecialSectionPages(SymtabAPI::Symtab *symTab) {
     base += pageSize;
 }
 
+static int reloc_num = 0;
 Address addExternalFuncSymbol(SymtabAPI::Symtab *symTab, SymtabAPI::Symtab *lib, string func_name) {
     vector<SymtabAPI::Function*> ret;
     if(!lib->findFunctionsByName(ret, move(func_name))) {
@@ -5856,8 +5775,8 @@ Address addExternalFuncSymbol(SymtabAPI::Symtab *symTab, SymtabAPI::Symtab *lib,
     default: assert(0 && "Encountered unknown address width");
     }
 
-    Address relocation_address = base - 0x1000;// add into .extsym
-    base += jump_slot_size;
+    Address relocation_address = base - 0x1000 + reloc_num * jump_slot_size;// add into .extsym
+    reloc_num++;
 
     Dyninst::SymtabAPI::Region *extsym = NULL;
     symTab->findRegion(extsym, ".extsym");
