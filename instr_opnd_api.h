@@ -3294,6 +3294,73 @@ enum {
 #define REG_LAST_ENUM DR_REG_LAST_ENUM
 #define REG_XSP DR_REG_XSP
 
+/* Maps sub-registers to their containing register. */
+/* Order corresponds to DR_REG_ enum. */
+const reg_id_t dr_reg_fixer[] = { REG_NULL,
+                                  REG_NULL,
+
+#define XREGS                                                                            \
+    DR_REG_X0, DR_REG_X1, DR_REG_X2, DR_REG_X3, DR_REG_X4, DR_REG_X5, DR_REG_X6,         \
+        DR_REG_X7, DR_REG_X8, DR_REG_X9, DR_REG_X10, DR_REG_X11, DR_REG_X12, DR_REG_X13, \
+        DR_REG_X14, DR_REG_X15, DR_REG_X16, DR_REG_X17, DR_REG_X18, DR_REG_X19,          \
+        DR_REG_X20, DR_REG_X21, DR_REG_X22, DR_REG_X23, DR_REG_X24, DR_REG_X25,          \
+        DR_REG_X26, DR_REG_X27, DR_REG_X28, DR_REG_X29, DR_REG_X30, DR_REG_XSP,          \
+        DR_REG_XZR,
+                                  XREGS     /* X0-XSP */
+                                      XREGS /* W0-WSP */
+#undef XREGS
+
+#define QREGS                                                                            \
+    DR_REG_Q0, DR_REG_Q1, DR_REG_Q2, DR_REG_Q3, DR_REG_Q4, DR_REG_Q5, DR_REG_Q6,         \
+        DR_REG_Q7, DR_REG_Q8, DR_REG_Q9, DR_REG_Q10, DR_REG_Q11, DR_REG_Q12, DR_REG_Q13, \
+        DR_REG_Q14, DR_REG_Q15, DR_REG_Q16, DR_REG_Q17, DR_REG_Q18, DR_REG_Q19,          \
+        DR_REG_Q20, DR_REG_Q21, DR_REG_Q22, DR_REG_Q23, DR_REG_Q24, DR_REG_Q25,          \
+        DR_REG_Q26, DR_REG_Q27, DR_REG_Q28, DR_REG_Q29, DR_REG_Q30, DR_REG_Q31,
+                                          QREGS                 /* Q0-Q31*/
+                                              QREGS             /* D0-D31 */
+                                                  QREGS         /* S0-S31 */
+                                                      QREGS     /* H0-H31 */
+                                                          QREGS /* B0-B31 */
+#undef QREGS
+
+    DR_REG_NZCV, DR_REG_FPCR, DR_REG_FPSR,
+    DR_REG_MDCCSR_EL0, DR_REG_DBGDTR_EL0, DR_REG_DBGDTRRX_EL0, DR_REG_SP_EL0,
+    DR_REG_SPSEL, DR_REG_DAIFSET, DR_REG_DAIFCLR, DR_REG_CURRENTEL, DR_REG_PAN,
+    DR_REG_UAO, DR_REG_CTR_EL0, DR_REG_DCZID_EL0, DR_REG_RNDR, DR_REG_RNDRRS,
+    DR_REG_DAIF, DR_REG_DIT, DR_REG_SSBS, DR_REG_TCO, DR_REG_DSPSR_EL0,
+    DR_REG_DLR_EL0, DR_REG_PMCR_EL0, DR_REG_PMCNTENSET_EL0,
+    DR_REG_PMCNTENCLR_EL0, DR_REG_PMOVSCLR_EL0,
+    DR_REG_PMSWINC_EL0, DR_REG_PMSELR_EL0, DR_REG_PMCEID0_EL0,
+    DR_REG_PMCEID1_EL0, DR_REG_PMCCNTR_EL0, DR_REG_PMXEVTYPER_EL0,
+    DR_REG_PMXEVCNTR_EL0, DR_REG_PMUSERENR_EL0, DR_REG_PMOVSSET_EL0,
+    DR_REG_SCXTNUM_EL0, DR_REG_CNTFRQ_EL0, DR_REG_CNTPCT_EL0,
+    DR_REG_CNTP_TVAL_EL0, DR_REG_CNTP_CTL_EL0, DR_REG_CNTP_CVAL_EL0,
+    DR_REG_CNTV_TVAL_EL0, DR_REG_CNTV_CTL_EL0, DR_REG_CNTV_CVAL_EL0,
+    DR_REG_PMEVCNTR0_EL0, DR_REG_PMEVCNTR1_EL0, DR_REG_PMEVCNTR2_EL0,
+    DR_REG_PMEVCNTR3_EL0, DR_REG_PMEVCNTR4_EL0, DR_REG_PMEVCNTR5_EL0,
+    DR_REG_PMEVCNTR6_EL0, DR_REG_PMEVCNTR7_EL0, DR_REG_PMEVCNTR8_EL0,
+    DR_REG_PMEVCNTR9_EL0, DR_REG_PMEVCNTR10_EL0, DR_REG_PMEVCNTR11_EL0,
+    DR_REG_PMEVCNTR12_EL0, DR_REG_PMEVCNTR13_EL0, DR_REG_PMEVCNTR14_EL0,
+    DR_REG_PMEVCNTR15_EL0, DR_REG_PMEVCNTR16_EL0, DR_REG_PMEVCNTR17_EL0,
+    DR_REG_PMEVCNTR18_EL0, DR_REG_PMEVCNTR19_EL0, DR_REG_PMEVCNTR20_EL0,
+    DR_REG_PMEVCNTR21_EL0, DR_REG_PMEVCNTR22_EL0, DR_REG_PMEVCNTR23_EL0,
+    DR_REG_PMEVCNTR24_EL0, DR_REG_PMEVCNTR25_EL0, DR_REG_PMEVCNTR26_EL0,
+    DR_REG_PMEVCNTR27_EL0, DR_REG_PMEVCNTR28_EL0, DR_REG_PMEVCNTR29_EL0,
+    DR_REG_PMEVCNTR30_EL0, DR_REG_PMEVTYPER0_EL0, DR_REG_PMEVTYPER1_EL0,
+    DR_REG_PMEVTYPER2_EL0, DR_REG_PMEVTYPER3_EL0, DR_REG_PMEVTYPER4_EL0,
+    DR_REG_PMEVTYPER5_EL0, DR_REG_PMEVTYPER6_EL0, DR_REG_PMEVTYPER7_EL0,
+    DR_REG_PMEVTYPER8_EL0, DR_REG_PMEVTYPER9_EL0, DR_REG_PMEVTYPER10_EL0,
+    DR_REG_PMEVTYPER11_EL0, DR_REG_PMEVTYPER12_EL0, DR_REG_PMEVTYPER13_EL0,
+    DR_REG_PMEVTYPER14_EL0, DR_REG_PMEVTYPER15_EL0, DR_REG_PMEVTYPER16_EL0,
+    DR_REG_PMEVTYPER17_EL0, DR_REG_PMEVTYPER18_EL0, DR_REG_PMEVTYPER19_EL0,
+    DR_REG_PMEVTYPER20_EL0, DR_REG_PMEVTYPER21_EL0, DR_REG_PMEVTYPER22_EL0,
+    DR_REG_PMEVTYPER23_EL0, DR_REG_PMEVTYPER24_EL0, DR_REG_PMEVTYPER25_EL0,
+    DR_REG_PMEVTYPER26_EL0, DR_REG_PMEVTYPER27_EL0, DR_REG_PMEVTYPER28_EL0,
+    DR_REG_PMEVTYPER29_EL0, DR_REG_PMEVTYPER30_EL0, DR_REG_PMCCFILTR_EL0,
+    DR_REG_SPSR_IRQ, DR_REG_SPSR_ABT, DR_REG_SPSR_UND, DR_REG_SPSR_FIQ,
+    DR_REG_TPIDR_EL0, DR_REG_TPIDRRO_EL0
+};
+
 /* Memory operand sizes (with Intel's corresponding size names noted).
  *
  * Intel's size names are listed in 'Appendix A Opcode Map (Intel SDM Volume 2)'
@@ -3572,6 +3639,7 @@ opnd_get_reg(opnd_t opnd)
 {
     return OPND_GET_REG(opnd);
 }
+
 
 opnd_size_t
 opnd_get_size(opnd_t opnd)
@@ -3868,6 +3936,14 @@ opnd_get_disp(opnd_t opnd)
     return OPND_GET_DISP(opnd);
 }
 
+#        define OPND_GET_SEGMENT(opnd) DR_REG_NULL
+
+reg_id_t
+opnd_get_segment(opnd_t opnd)
+{
+    return OPND_GET_SEGMENT(opnd);
+}
+
 #                define OPND_IS_REL_ADDR(op) ((op).kind == REL_ADDR_kind)
 
 bool
@@ -3973,6 +4049,48 @@ opnd_create_base_disp_aarch64(reg_id_t base_reg, reg_id_t index_reg,
     if (!opnd_set_index_extend(&opnd, extend_type, scaled))
         CLIENT_ASSERT(false, "opnd_create_base_disp_aarch64: invalid extend type");
     return opnd;
+}
+
+/*
+   opnd_uses_reg is now changed so that it does consider 8/16 bit
+   register overlaps.  i think this change is OK and correct, but not
+   sure.  as far as I'm aware, only my optimization stuff and the
+   register stealing code (which is now not used, right?) relies on
+   this code ==> but we now export it via CI API */
+
+bool
+opnd_uses_reg(opnd_t opnd, reg_id_t reg)
+{
+    if (reg == REG_NULL)
+        return false;
+    switch (opnd.kind) {
+    case NULL_kind:
+    case IMMED_INTEGER_kind:
+    case IMMED_FLOAT_kind:
+    case IMMED_DOUBLE_kind:
+    case PC_kind:
+    case FAR_PC_kind:
+    case INSTR_kind:
+    case FAR_INSTR_kind:
+    case MEM_INSTR_kind: return false;
+
+    case REG_kind: return (dr_reg_fixer[reg] == dr_reg_fixer[opnd_get_reg(opnd)]);
+
+    case BASE_DISP_kind:
+        return (dr_reg_fixer[reg] == dr_reg_fixer[opnd_get_base(opnd)] ||
+                dr_reg_fixer[reg] == dr_reg_fixer[opnd_get_index(opnd)] ||
+                dr_reg_fixer[reg] == dr_reg_fixer[opnd_get_segment(opnd)]);
+
+#if defined(X64) || defined(ARM)
+    case REL_ADDR_kind:
+#endif
+#ifdef X64
+    case ABS_ADDR_kind:
+        return (dr_reg_fixer[reg] == dr_reg_fixer[opnd_get_segment(opnd)]);
+#endif
+
+    default: CLIENT_ASSERT(false, "opnd_uses_reg: unknown opnd type"); return false;
+    }
 }
 
 static uint
