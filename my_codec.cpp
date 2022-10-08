@@ -5260,6 +5260,7 @@ save_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg_id
 	// analyze the code in tracelib?
     for(int i = 0; i < regs.size() - 1; i+=2) {
 	// stp reg0, reg1, [sp, #-0x10]!
+	printf("%d, %d\n", regs[i], regs[i+1]);
     	instr_t * stp1_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(regs[i]), opnd_create_reg(regs[i+1]));
     	ins_list.push_back(stp1_ins);
     	ins_code_list.push_back(0);
@@ -5731,8 +5732,8 @@ getEntryExitFuncUsedRegs(std::unique_ptr<const Binary> &lib, string &trace_func_
 	    // reg_get_size
 	    if(!opnd_is_reg(instr_get_dst(decode_list[i], j))) continue;
     	    reg_id_t reg = opnd_get_reg(instr_get_dst(decode_list[i], j));
-	    if(reg >= DR_REG_W0 && reg <= DR_REG_W30) reg -= (DR_REG_W0 - DR_REG_X0);
-	    reg_set.insert(reg);
+	    if(reg >= DR_REG_W0 && reg < DR_REG_W29) reg -= (DR_REG_W0 - DR_REG_X0);
+	    if(reg >= DR_REG_X0 && reg < DR_REG_X29) reg_set.insert(reg);
 	}
     }
 
@@ -5998,7 +5999,7 @@ int main(int argc, char** argv) {
 
     modify_text_dyn(binary, func_addr, symTab);
 
-    if(!symTab->addLibraryPrereq("/home/lkl/BIRA/build/libhook.so")) {
+    if(!symTab->addLibraryPrereq(argv[2])) {
         cerr << "error: add library";
         return -1;
     }
