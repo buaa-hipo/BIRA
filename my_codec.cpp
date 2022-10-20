@@ -5508,10 +5508,10 @@ restore_replaced_ins_before(int stack_params_num, vector<instr_t *> &replaced_in
 }
 
 
-void
-encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &ins, uint func_addr, bool isBlr, bool replace_before)
+vector<uint8_t>
+encode_new_section(vector<instr_t *> &ins, uint func_addr, bool isBlr, bool replace_before)
 {
-    Offset file_offset = new_section->getDiskOffset();
+    uint file_offset = base;
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
 
@@ -5545,7 +5545,7 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &ins, uint 
     // cmp for blr case
     // maybe BR?
     if(isBlr) {
-        handleBlr(ins, func_addr, file_offset + 28, ins_code_list, ins_list);
+        handleBlr(ins, func_addr, file_offset + 4 * ins_list.size(), ins_code_list, ins_list);
     }
 
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
@@ -5612,11 +5612,7 @@ encode_new_section(SymtabAPI::Region *new_section, vector<instr_t *> &ins, uint 
 
     encode(ins_list, file_offset, ins_code_list);
     vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
-    unsigned char* rawData = new unsigned char[data.size()];
-    for(int i = 0; i < data.size(); i++)
-	rawData[i] = data[i];
-    if(!new_section->setPtrToRawData((void*)rawData, data.size()))
-	cout << "setPtrToRawData err!" << endl;
+    return data;
 }
 
 // instrs.size() == 1, we need to replace 2 ins at all.
@@ -5628,7 +5624,6 @@ add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_
     int section_size = 1 << 12;// + regs.size() * 16;// + regs.size() * 32; // is BLR + x!!
 
     symTab->addRegion(base, (void*)(empty), section_size, secName.c_str(), SymtabAPI::Region::RT_TEXT, true);
-    base += section_size;
 
     SymtabAPI::Region *new_section;
     if(!symTab->findRegion(new_section, secName.c_str())) 
@@ -5636,10 +5631,18 @@ add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_
 
     wrapper_addr = new_section->getMemOffset();
     printf("wrapper_addr = %llx\n", wrapper_addr);
-    encode_new_section(new_section, instrs, func_addr, isBlr, replace_before);
+    vector<uint8_t> data = encode_new_section(instrs, func_addr, isBlr, replace_before);
+    base += section_size;
+
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+	rawData[i] = data[i];
+    if(!new_section->setPtrToRawData((void*)rawData, data.size()))
+	cout << "setPtrToRawData err!" << endl;
 }
 
 static uint special_offset;
+SymtabAPI::Region *special_section;
 
 /*
 void
@@ -5696,9 +5699,9 @@ push_regs_to_tls_section(vector<uint> &ins_code_list, vector<instr_t*> &ins_list
 
 // append new ins into .special
 // if isBlr, instrs[0] == blr
-void
-appendCode(uint func_addr, vector<instr_t *> &instrs, SymtabAPI::Region *special_section, bool isBlr, bool replace_before) {
-    Offset file_offset = special_section->getDiskOffset();
+vector<uint8_t>
+appendCode(uint func_addr, vector<instr_t *> &instrs, bool isBlr, bool replace_before) {
+    uint file_offset = special_section->getDiskOffset();
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
 
@@ -5732,7 +5735,7 @@ appendCode(uint func_addr, vector<instr_t *> &instrs, SymtabAPI::Region *special
     if(isBlr) {
 	// use ins_list size to cal ins nums and update the offset!!!
 	// restore the sp after move params!!!
-        handleBlr(instrs, func_addr, file_offset + special_offset + 28, ins_code_list, ins_list);
+        handleBlr(instrs, func_addr, file_offset + special_offset + 4 * ins_list.size(), ins_code_list, ins_list);
     }
     
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
@@ -5798,11 +5801,7 @@ appendCode(uint func_addr, vector<instr_t *> &instrs, SymtabAPI::Region *special
 
     encode(ins_list, file_offset, ins_code_list);
     vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
-    unsigned char* rawData = new unsigned char[data.size()];
-    for(int i = 0; i < data.size(); i++)
-        rawData[i] = data[i];
-    if(!special_section->patchData(special_offset, (void*)rawData, data.size()))
-        cout << "special_section patchData err!" << endl;
+    return data;
 }
 
 // instrs.size() == 2, we need to replace 3 ins at all.
@@ -5818,21 +5817,18 @@ handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<in
     // b.ne XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(ret addr))
     // blr (to .special accordingly)
     // ret
-    uint special_code_size = 512;
-    /*
-    int section_size = 72 - 16*2 + 44 + regs.size() * 16;// + regs.size() * 32;
-    for(auto ins : instrs) {
-	    if(instr_get_opcode(ins) == OP_b) section_size += 8;
-    }
-    */
-
-    SymtabAPI::Region *special_section;
-    if(!symTab->findRegion(special_section, ".special"))
-        cout << "findRegion .special err" << endl;
 
     wrapper_addr = special_section->getDiskOffset() + special_offset;
     printf("wrapper_addr = %llx\n", wrapper_addr);
-    appendCode(func_addr, instrs, special_section, isBlr, replaced_before);
+
+    vector<uint8_t> data = appendCode(func_addr, instrs, isBlr, replaced_before);
+    uint special_code_size = data.size();
+
+    unsigned char* rawData = new unsigned char[data.size()];
+    for(int i = 0; i < data.size(); i++)
+        rawData[i] = data[i];
+    if(!special_section->patchData(special_offset, (void*)rawData, special_code_size))
+        cout << "special_section patchData err!" << endl;
     special_offset += special_code_size;
 }
 
@@ -5872,6 +5868,16 @@ getEntryExitFuncUsedRegs(std::unique_ptr<const Binary> &lib, string &trace_func_
 	    if(reg >= DR_REG_X0 && reg < DR_REG_X29) reg_set.insert(reg);
 	}
     }
+
+    reg_set.insert(DR_REG_X0);
+    reg_set.insert(DR_REG_X1);
+    reg_set.insert(DR_REG_X2);
+    reg_set.insert(DR_REG_X3);
+    reg_set.insert(DR_REG_X4);
+    reg_set.insert(DR_REG_X5);
+    reg_set.insert(DR_REG_X6);
+    reg_set.insert(DR_REG_X7);
+    reg_set.insert(DR_REG_X8);
 
     vector<reg_id_t> regs;
     for(auto reg : reg_set) regs.push_back(reg);
@@ -5919,6 +5925,26 @@ getUsedRegs(vector<instr_t*> decode_list, int index)
     return regs;
 }
 
+bool
+check_opcode(int opcode) 
+{
+    switch(opcode) {
+	case OP_bcond:
+	case OP_cbnz:
+	case OP_tbnz:
+	case OP_cbz:
+	case OP_tbz:
+
+	case OP_b:
+	case OP_bl:
+
+	case OP_ret:
+		return true;
+	default: return false;
+    }
+    return false;
+}
+
 void
 modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI::Symtab *symTab)
 {
@@ -5928,16 +5954,28 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
     cout << ".text offset = " << file_offset << endl;
     vector<uint> ins_code_list;
     vector<instr_t*> decode_list = decode(text_content, file_offset, ins_code_list);
+    set<uint> branch_addrs;
 
     int count = 0;
     for(int i = 0; i < decode_list.size(); i++) {
-        bool isBlr = false;
+        if(check_opcode(decode_list[i]->opcode)) {
+	    branch_addrs.emplace(opnd_get_pc(instr_get_target(decode_list[i])));
+	}
+    }
+    for(int i = 0; i < decode_list.size(); i++) {
+	bool isBlr = false;
 
 	if(decode_list[i]->opcode == OP_blr) {
 	    // isBlr = true;
 	}
 
         if((isBlr || (decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr))) {
+	    bool can_replace_before = (branch_addrs.find(file_offset + (i)*4) == branch_addrs.end());
+	    bool can_replace_after = (branch_addrs.find(file_offset + (i+1)*4) == branch_addrs.end());
+	    if(!can_replace_before && !can_replace_after) {
+	        printf("skip!\n");	
+		continue;
+	    }
 	    printf("Got it!\n");
             uint wrapper_addr;
 
@@ -5950,14 +5988,15 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
             instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
 
 	    // try to replace ins after bl
-	    if(opcode_ins_1 == OP_bcond || opcode_ins_1 == OP_b || opcode_ins_1 == OP_ret) {
+	    if(check_opcode(opcode_ins_1) || !can_replace_before) {
 	        uint opcode_ins1 = instr_get_opcode(decode_list[i+1]);
 	        uint opcode_ins2 = instr_get_opcode(decode_list[i+2]);
-		if(opcode_ins1 == OP_bcond || opcode_ins1 == OP_b || opcode_ins1 == OP_ret) {
+		if(check_opcode(opcode_ins1) || !can_replace_after) {
+		    printf("skip!\n");
 		    continue;
 		}
 		instrs.push_back(decode_list[i+1]);
-		if(opcode_ins2 == OP_bcond || opcode_ins2 == OP_b || opcode_ins2 == OP_ret) {
+		if(opcode_ins2 != OP_b && (check_opcode(opcode_ins2) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end())) {
 		    std::string secName = ".mysection" + std::to_string(i);
                     add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, isBlr, false);
 
@@ -5979,8 +6018,7 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 		continue;
 	    }
 
-	    if(opcode_ins_2 == OP_bcond || opcode_ins_2 == OP_b || opcode_ins_2 == OP_ret) {
-		    continue;
+	    if(check_opcode(opcode_ins_2) || branch_addrs.find(file_offset + (i-1)*4) != branch_addrs.end()) {
                 instrs.push_back(decode_list[i-1]);
                 std::string secName = ".mysection" + std::to_string(i);
                 add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, isBlr, true);
@@ -6043,7 +6081,6 @@ void addSpecialSectionPages(SymtabAPI::Symtab *symTab) {
 
     symTab->addRegion(base, (void*)(empty), 4 * pageSize - 48, ".special", SymtabAPI::Region::RT_TEXT, true);
 
-    SymtabAPI::Region *special_section;
     if(!symTab->findRegion(special_section, ".special"))
         cout << "findRegion .special err" << endl;
     base += 4 * pageSize - 48;
@@ -6161,7 +6198,6 @@ int main(int argc, char** argv) {
     entry_exit_used_regs.push_back(regs1);
 
     modify_text_dyn(binary, func_addr, symTab);
-
     if(!symTab->addLibraryPrereq(argv[2])) {
         cerr << "error: add library";
         return -1;
