@@ -5342,6 +5342,34 @@ restore_aflgs(vector<uint> &ins_code_list, vector<instr_t*> &ins_list)
     ins_code_list.push_back(0);
 }
 
+void
+restore_replaced_ins(vector<instr_t *> &replaced_instrs, vector<uint> &ins_code_list, vector<instr_t*> &ins_list, bool isBlr)
+{
+    // modify sp?
+    int i = (isBlr) ? 1 : 0;
+    for(; i < replaced_instrs.size(); i++) {
+	auto ins = replaced_instrs[i];
+        int opcode = instr_get_opcode(ins);
+	if(opcode == OP_bl) {
+	    // to-do use adrp and blr to replace
+	    uint target = opnd_get_pc(instr_get_target(ins));
+	    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
+    	    ins_list.push_back(adrp_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
+    	    ins_list.push_back(add_off_ins2);
+    	    ins_code_list.push_back(0);
+    	    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
+    	    ins_list.push_back(blr_ins2);
+    	    ins_code_list.push_back(0);
+	} else {
+	    // if the third ins is cmp, maybe ldp and add will change arithmetic flags?
+	    ins_list.push_back(ins);
+            ins_code_list.push_back(0);
+	}	
+    }
+}
+
 // add blr support(blr flg)
 // compare the blr reg with func_addr(adrp add to a reg)
 // if match, call hook blr hook
@@ -5353,7 +5381,7 @@ restore_aflgs(vector<uint> &ins_code_list, vector<instr_t*> &ins_list)
 // if equal continue hook
 // else blr and ret
 void
-handleBlr(vector<instr_t *> &instrs, uint func_addr, int bOffset, vector<uint> &ins_code_list, vector<instr_t*> &ins_list)
+handleBlr(vector<instr_t *> &instrs, uint func_addr, int bOffset, vector<uint> &ins_code_list, vector<instr_t*> &ins_list, bool replace_before)
 {
     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
     ins_list.push_back(adrp_ins);
@@ -5366,7 +5394,7 @@ handleBlr(vector<instr_t *> &instrs, uint func_addr, int bOffset, vector<uint> &
     ins_code_list.push_back(0);
 
     // if eq, jump to continue after ret
-    instr_t* beq_ins = XINST_CREATE_jump_cond(DR_PRED_EQ, opnd_create_pc(bOffset + (13 + instrs.size()) * 4));
+    instr_t* beq_ins = XINST_CREATE_jump_cond(DR_PRED_EQ, opnd_create_pc(/*bOffset +*/ -(13 + instrs.size()) * 4));
     ins_list.push_back(beq_ins);
     ins_code_list.push_back(0);
     restore_aflgs(ins_code_list, ins_list);
@@ -5386,9 +5414,8 @@ handleBlr(vector<instr_t *> &instrs, uint func_addr, int bOffset, vector<uint> &
     ins_code_list.push_back(0);
 
     // restore the replace ins.
-    for(int i = 1; i < instrs.size(); i++) {
-	ins_list.push_back(instrs[i]);
-        ins_code_list.push_back(0);
+    if(!replace_before) {
+        restore_replaced_ins(instrs, ins_code_list, ins_list, true);
     }
 
     // ret
@@ -5437,34 +5464,6 @@ push_params_below_X2930(vector<uint> &ins_code_list, vector<instr_t*> &ins_list,
 
 }
 
-void
-restore_replaced_ins(vector<instr_t *> &replaced_instrs, vector<uint> &ins_code_list, vector<instr_t*> &ins_list, bool isBlr)
-{
-    // modify sp?
-    int i = (isBlr) ? 1 : 0;
-    for(; i < replaced_instrs.size(); i++) {
-	auto ins = replaced_instrs[i];
-        int opcode = instr_get_opcode(ins);
-	if(opcode == OP_bl) {
-	    // to-do use adrp and blr to replace
-	    uint target = opnd_get_pc(instr_get_target(ins));
-	    instr_t * adrp_ins2 = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((target >> 12) << 12), OPSZ_0));
-    	    ins_list.push_back(adrp_ins2);
-    	    ins_code_list.push_back(0);
-    	    instr_t* add_off_ins2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((target << 20) >> 20));
-    	    ins_list.push_back(add_off_ins2);
-    	    ins_code_list.push_back(0);
-    	    instr_t * blr_ins2 = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
-    	    ins_list.push_back(blr_ins2);
-    	    ins_code_list.push_back(0);
-	} else {
-	    // if the third ins is cmp, maybe ldp and add will change arithmetic flags?
-	    ins_list.push_back(ins);
-            ins_code_list.push_back(0);
-	}	
-    }
-}
-
 bool
 restore_replaced_ins_before(int stack_params_num, vector<instr_t *> &replaced_instrs, vector<uint> &ins_code_list, vector<instr_t*> &ins_list, bool isBlr)
 {
@@ -5505,140 +5504,6 @@ restore_replaced_ins_before(int stack_params_num, vector<instr_t *> &replaced_in
 
     restore_replaced_ins(replaced_instrs, ins_code_list, ins_list, isBlr);   
     return use_sp;
-}
-
-
-vector<uint8_t>
-encode_new_section(vector<instr_t *> &ins, uint func_addr, bool isBlr, bool replace_before)
-{
-    uint file_offset = base;
-    vector<uint> ins_code_list;
-    vector<instr_t*> ins_list;
-
-    int stack_params_num = (params_num - 8) / 2 + (params_num - 8) % 2;
-
-    // stp x29, x30, [sp, #-0x10]!
-    instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(stp_ins);
-    ins_code_list.push_back(0);
-
-    push_params_below_X2930(ins_code_list, ins_list, stack_params_num);
-
-    bool use_sp = replace_before ? restore_replaced_ins_before(stack_params_num, ins, ins_code_list, ins_list, isBlr) : false;
-
-    if(!use_sp && replace_before) {
-        save_aflgs(ins_code_list, ins_list, -16);
-        // sub sp sp 32
-        instr_t* sub_aflg_ins1 = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(32));
-        ins_list.push_back(sub_aflg_ins1);
-        ins_code_list.push_back(0);
-    } else {
-        int stack_sub_off = 16;
-        if(params_num - 8 > 0) stack_sub_off += (stack_params_num << 4);
-        save_aflgs(ins_code_list, ins_list, -16-stack_sub_off);
-        // sub sp sp 48
-        instr_t* sub_aflg_ins1 = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(32+stack_sub_off));
-        ins_list.push_back(sub_aflg_ins1);
-        ins_code_list.push_back(0);
-    }
-
-    // cmp for blr case
-    // maybe BR?
-    if(isBlr) {
-        handleBlr(ins, func_addr, file_offset + 4 * ins_list.size(), ins_code_list, ins_list);
-    }
-
-    save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
-
-    call_external_func(ins_code_list, ins_list, entry_func);
-
-    // restore regular regs
-    restore_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
-    
-    // restore aflgs
-    restore_aflgs(ins_code_list, ins_list);
-    
-    if(isBlr) {
-	ins_list.push_back(ins[0]);
-    	ins_code_list.push_back(0);
-    } else {
-    // blr func
-        instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((func_addr >> 12) << 12), OPSZ_0));
-        ins_list.push_back(adrp_ins);
-        ins_code_list.push_back(0);
-        instr_t* add_off_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(func_addr & 0xfff));
-        ins_list.push_back(add_off_ins);
-        ins_code_list.push_back(0);
-        instr_t * blr_ins = INSTR_CREATE_blr(opnd_create_reg(DR_REG_X30));
-        ins_list.push_back(blr_ins);
-        ins_code_list.push_back(0);
-    }
-    // save regs and aflgs
-    save_aflgs(ins_code_list, ins_list, -16);
-
-    // sub sp sp 32
-    instr_t* sub_aflgs_ins2 = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(32));
-    ins_list.push_back(sub_aflgs_ins2);
-    ins_code_list.push_back(0);
-
-    save_regs(ins_list, ins_code_list, entry_exit_used_regs[1]);
-
-    call_external_func(ins_code_list, ins_list, exit_func);
-    // restore  regs and aflgs
-    restore_regs(ins_list, ins_code_list, entry_exit_used_regs[1]);
-  
-    restore_aflgs(ins_code_list, ins_list);
-
-    // ldp x29, x30
-    uint stack_add_off = 16;
-    if(params_num - 8 > 0) stack_add_off += (stack_params_num << 4);
-    instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(stack_add_off));
-    ins_list.push_back(add_ins);
-    ins_code_list.push_back(0);
-    instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16));
-    ins_list.push_back(ldp_ins);
-    ins_code_list.push_back(0);
-
-    // pop_regs_from_tls_section(ins_code_list, ins_list);
-
-    if(!replace_before) {
-        restore_replaced_ins(ins, ins_code_list, ins_list, isBlr);
-    }
-
-    // ret
-    instr_t* ret_ins = INSTR_CREATE_ret(opnd_create_reg(DR_REG_X30));
-    ins_list.push_back(ret_ins);
-    ins_code_list.push_back(0);
-
-    encode(ins_list, file_offset, ins_code_list);
-    vector<uint8_t> data = getByteslist(ins_list, ins_code_list);
-    return data;
-}
-
-// instrs.size() == 1, we need to replace 2 ins at all.
-// add blr flg
-void
-add_new_section_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t*> &instrs, std::string &secName, uint func_addr, bool isBlr, bool replace_before)
-{
-    unsigned char empty[] = {};
-    int section_size = 1 << 12;// + regs.size() * 16;// + regs.size() * 32; // is BLR + x!!
-
-    symTab->addRegion(base, (void*)(empty), section_size, secName.c_str(), SymtabAPI::Region::RT_TEXT, true);
-
-    SymtabAPI::Region *new_section;
-    if(!symTab->findRegion(new_section, secName.c_str())) 
-	cout << "findRegion err" << endl;
-
-    wrapper_addr = new_section->getMemOffset();
-    printf("wrapper_addr = %llx\n", wrapper_addr);
-    vector<uint8_t> data = encode_new_section(instrs, func_addr, isBlr, replace_before);
-    base += section_size;
-
-    unsigned char* rawData = new unsigned char[data.size()];
-    for(int i = 0; i < data.size(); i++)
-	rawData[i] = data[i];
-    if(!new_section->setPtrToRawData((void*)rawData, data.size()))
-	cout << "setPtrToRawData err!" << endl;
 }
 
 static uint special_offset;
@@ -5700,12 +5565,17 @@ push_regs_to_tls_section(vector<uint> &ins_code_list, vector<instr_t*> &ins_list
 // append new ins into .special
 // if isBlr, instrs[0] == blr
 vector<uint8_t>
-appendCode(uint func_addr, vector<instr_t *> &instrs, bool isBlr, bool replace_before) {
-    uint file_offset = special_section->getDiskOffset();
+appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBlr, bool replace_before) {
+    uint file_offset;
+    if(newSection) 
+	file_offset = base;
+    else 
+        file_offset = special_section->getDiskOffset();
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
 
-    int stack_params_num = (params_num - 8) / 2 + (params_num - 8) % 2;
+    // if blr addr match with func_addr, we must save params!!!
+    int stack_params_num = isBlr ? 0 : (params_num - 8) / 2 + (params_num - 8) % 2;
 
     // stp x29, x30, [sp, #-0x10]!
     instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_X30));
@@ -5735,7 +5605,10 @@ appendCode(uint func_addr, vector<instr_t *> &instrs, bool isBlr, bool replace_b
     if(isBlr) {
 	// use ins_list size to cal ins nums and update the offset!!!
 	// restore the sp after move params!!!
-        handleBlr(instrs, func_addr, file_offset + special_offset + 4 * ins_list.size(), ins_code_list, ins_list);
+        if(newSection)	
+            handleBlr(instrs, func_addr, file_offset + 4 * ins_list.size(), ins_code_list, ins_list, replace_before);
+	else
+	    handleBlr(instrs, func_addr, file_offset + special_offset /*+ 4 * ins_list.size()*/, ins_code_list, ins_list, replace_before);
     }
     
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
@@ -5804,12 +5677,8 @@ appendCode(uint func_addr, vector<instr_t *> &instrs, bool isBlr, bool replace_b
     return data;
 }
 
-// instrs.size() == 2, we need to replace 3 ins at all.
-// no jumptable needed, just using adrp, add off, blr
-// pc_offset == i+2 th ins offset
-// (i+2)*4 + text_offset?
 void
-handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, uint func_addr, uint pc_offset, bool isBlr, bool replaced_before)
+encode_section(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> &instrs, uint func_addr, std::string &secName, bool newSection, bool isBlr, bool replaced_before)
 {
     // save context (i.e. lr)
     // get page offset in lr: and lr lr 0xfff
@@ -5817,19 +5686,48 @@ handle_special_case_dyn(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<in
     // b.ne XINST_CREATE_jump_cond(DR_PRED_NE, opnd_create_pc(ret addr))
     // blr (to .special accordingly)
     // ret
+    vector<uint8_t> data;
+    if(newSection) {
+        // instrs.size() == 1, we need to replace 2 ins at all.
+        // add blr flg
+	unsigned char empty[] = {};
+        int section_size = 1 << 12;// + regs.size() * 16;// + regs.size() * 32; // is BLR + x!!
 
-    wrapper_addr = special_section->getDiskOffset() + special_offset;
+        symTab->addRegion(base, (void*)(empty), section_size, secName.c_str(), SymtabAPI::Region::RT_TEXT, true);
+
+        SymtabAPI::Region *new_section;
+        if(!symTab->findRegion(new_section, secName.c_str()))
+            cout << "findRegion err" << endl;
+
+        wrapper_addr = new_section->getMemOffset();
+        // data = encode_new_section(instrs, func_addr, isBlr, replaced_before);
+        data = appendCode(instrs, func_addr, newSection, isBlr, replaced_before);
+        base += section_size;
+
+        unsigned char* rawData = new unsigned char[data.size()];
+        for(int i = 0; i < data.size(); i++)
+            rawData[i] = data[i];
+        if(!new_section->setPtrToRawData((void*)rawData, data.size()))
+            cout << "setPtrToRawData err!" << endl;
+    } else {
+        // instrs.size() == 2, we need to replace 3 ins at all.
+        // no jumptable needed, just using adrp, add off, blr
+        // pc_offset == i+2 th ins offset
+        // (i+2)*4 + text_offset?
+        wrapper_addr = special_section->getDiskOffset() + special_offset;
+
+        // data = appendCode(func_addr, instrs, isBlr, replaced_before);
+        data = appendCode(instrs, func_addr, newSection, isBlr, replaced_before);
+        uint special_code_size = data.size();
+
+        unsigned char* rawData = new unsigned char[data.size()];
+        for(int i = 0; i < data.size(); i++)
+            rawData[i] = data[i];
+        if(!special_section->patchData(special_offset, (void*)rawData, special_code_size))
+             cout << "special_section patchData err!" << endl;
+        special_offset += special_code_size;
+    }
     printf("wrapper_addr = %llx\n", wrapper_addr);
-
-    vector<uint8_t> data = appendCode(func_addr, instrs, isBlr, replaced_before);
-    uint special_code_size = data.size();
-
-    unsigned char* rawData = new unsigned char[data.size()];
-    for(int i = 0; i < data.size(); i++)
-        rawData[i] = data[i];
-    if(!special_section->patchData(special_offset, (void*)rawData, special_code_size))
-        cout << "special_section patchData err!" << endl;
-    special_offset += special_code_size;
 }
 
 vector<instr_t*>
@@ -5883,45 +5781,6 @@ getEntryExitFuncUsedRegs(std::unique_ptr<const Binary> &lib, string &trace_func_
     for(auto reg : reg_set) regs.push_back(reg);
     if(regs.size() % 2 != 0) regs.push_back(DR_REG_X30);
 
-    return regs;
-}
-
-vector<reg_id_t>
-getUsedRegs(vector<instr_t*> decode_list, int index)
-{
-    set<reg_id_t> reg_set;
-    for(int i = 0; i < decode_list.size(); i++) {
-	if(decode_list[i]->opcode == OP_ret || decode_list[i]->opcode == OP_br || decode_list[i]->opcode == OP_b) break;
-	int src_num = instr_num_srcs(decode_list[i]);
-	for(int j = 0; j < src_num; j++) {
-	    // reg_get_size
-    	    reg_id_t reg = opnd_get_reg(instr_get_src(decode_list[i], j));
-	    if(reg == DR_REG_X29 || reg == DR_REG_X30) continue;
-	    if(!(reg >= DR_REG_X0 && reg <= DR_REG_X30)) continue;
-	    reg_set.insert(reg);
-	}
-    }
-    
-    if(params_num > 0) {
-        reg_set.insert(DR_REG_X0);
-        reg_set.insert(DR_REG_X1);
-    }
-    if(params_num > 2) {
-        reg_set.insert(DR_REG_X2);
-        reg_set.insert(DR_REG_X3);
-    }
-    if(params_num > 4) {
-        reg_set.insert(DR_REG_X4);
-        reg_set.insert(DR_REG_X5);
-    }
-    if(params_num > 6) {
-        reg_set.insert(DR_REG_X6);
-        reg_set.insert(DR_REG_X7);
-    }
-
-    vector<reg_id_t> regs;
-    for(auto reg : reg_set) regs.push_back(reg);
-    if(regs.size() % 2 != 0) regs.push_back(DR_REG_X30);
     return regs;
 }
 
@@ -5996,9 +5855,9 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 		    continue;
 		}
 		instrs.push_back(decode_list[i+1]);
-		if(opcode_ins2 != OP_b && (check_opcode(opcode_ins2) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end())) {
+		if((opcode_ins2 != OP_b && check_opcode(opcode_ins2)) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
 		    std::string secName = ".mysection" + std::to_string(i);
-                    add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, isBlr, false);
+                    encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, false);
 
                     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                     decode_list[i] = adrp_ins;
@@ -6006,7 +5865,8 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
                     i++;
 		} else {
 		    instrs.push_back(decode_list[i+2]);
-		    handle_special_case_dyn(symTab, wrapper_addr, instrs, func_addr, file_offset + (i+2)*4, isBlr, false);
+		    std::string secName = ".special";
+		    encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, false);
 
                     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
 	            instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
@@ -6021,7 +5881,7 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 	    if(check_opcode(opcode_ins_2) || branch_addrs.find(file_offset + (i-1)*4) != branch_addrs.end()) {
                 instrs.push_back(decode_list[i-1]);
                 std::string secName = ".mysection" + std::to_string(i);
-                add_new_section_dyn(symTab, wrapper_addr, instrs, secName, func_addr, isBlr, true);
+                encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, true);
 
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                 decode_list[i-1] = adrp_ins;
@@ -6029,7 +5889,8 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 	    } else {
                 instrs.push_back(decode_list[i-2]);
                 instrs.push_back(decode_list[i-1]);
-		handle_special_case_dyn(symTab, wrapper_addr, instrs, func_addr, file_offset + (i+2)*4, isBlr, true);
+		std::string secName = ".special";
+		encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, true);
 
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_X30), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
 	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X30), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
