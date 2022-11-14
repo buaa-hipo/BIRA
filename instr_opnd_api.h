@@ -4580,6 +4580,7 @@ instr_create_2dst_1src(int opcode, opnd_t dst1, opnd_t dst2, opnd_t src)
 
 #define INSTR_CREATE_label() instr_create_0dst_0src(OP_LABEL)
 
+#define INSTR_CREATE_br(xn) instr_create_0dst_1src(OP_br, (xn))
 #define INSTR_CREATE_blr(xn) \
     instr_create_1dst_1src(OP_blr, opnd_create_reg(DR_REG_X30), (xn))
 
