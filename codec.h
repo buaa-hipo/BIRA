@@ -40,8 +40,13 @@ typedef unsigned char byte;
 #include "instr_opnd_api.h"
 #include "instr_inline_api.h"
 
-
 #define ENCFAIL (uint)0xFFFFFFFF /* a value that is not a valid instruction */
+
+byte *
+decode_common(byte *pc, byte *orig_pc, instr_t *instr);
+
+uint
+encode_common(byte *pc, instr_t *i, decode_info_t *di);
 
 int
 instr_num_srcs(instr_t *instr);

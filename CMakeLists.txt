@@ -2,7 +2,7 @@
 # otherwise 3.11+ for FetchContent command
 cmake_minimum_required(VERSION 3.5)
 
-project(codec LANGUAGES CXX)
+project(jsiwrap LANGUAGES CXX)
 
 # User must provide location of Dyninst cmake files either as a cache or
 # environment variable
@@ -129,19 +129,20 @@ endif()
 # Add our executable
 # ==================
 add_compile_options(-fpermissive)
-add_executable(codec my_codec.cpp)
+add_library(codec SHARED codec.cpp)
+add_executable(jsiwrap jsiwrap.cpp)
 
 if(MSVC)
-  set_property(TARGET codec PROPERTY LINK_FLAGS /NODEFAULTLIB:MSVCRT)
+  set_property(TARGET jsiwrap PROPERTY LINK_FLAGS /NODEFAULTLIB:MSVCRT)
 endif()
 
 # Enable C++11
-set_property(TARGET codec
+set_property(TARGET jsiwrap
              PROPERTY CXX_STANDARD           11
              PROPERTY CXX_STANDARD_REQUIRED  ON)
 
-target_include_directories(codec PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS})
+target_include_directories(jsiwrap PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS})
 # Link the executable with LIEF
-target_link_libraries(codec PUBLIC LIEF::LIEF dyninstAPI symtabAPI common ${DYNINST_Boost_LIBRARIES})
+target_link_libraries(jsiwrap PUBLIC codec LIEF::LIEF dyninstAPI symtabAPI common ${DYNINST_Boost_LIBRARIES})
 
-install(TARGETS codec DESTINATION bin)
+install(TARGETS jsiwrap DESTINATION bin)

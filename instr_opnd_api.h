@@ -1,3 +1,6 @@
+#ifndef _INSTR_OPND_API_H_
+#define _INSTR_OPND_API_H_ 1
+
 #include "codec.h"
 #define AARCH64
 #define X64
@@ -4657,3 +4660,5 @@ instr_create_2dst_1src(int opcode, opnd_t dst1, opnd_t dst2, opnd_t src)
 #define OPND_CREATE_INT8(val) opnd_create_immed_int((ptr_int_t)(val), OPSZ_1)
 
 #define OPND_CREATE_ABSMEM(addr, size) opnd_create_rel_addr(addr, size)
+
+#endif /* INSTR_OPND_API_H */
