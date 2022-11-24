@@ -30,7 +30,7 @@ using namespace std;
 
 using namespace Dyninst;
 
-// to-do: use virtual_address as orig_pc
+// to-do: replace LIEF with dyninst.
 vector<instr_t*>
 decode(LIEF::span<const unsigned char> &text_content, uint file_offset, vector<uint> &ins_code_list)
 {
@@ -51,7 +51,6 @@ decode(LIEF::span<const unsigned char> &text_content, uint file_offset, vector<u
     return decode_list;
 }
 
-// replace func_name in BL func_name(or address obtain by LIEF) in .text section with new_func
 void
 encode(vector<instr_t*> &instr_list, uint file_offset, vector<uint> &ins_code_list) {
     int count = 0;
@@ -83,7 +82,7 @@ getByteslist(vector<instr_t*> &instr_list, vector<uint> &ins_code_list)
     return data;
 }
 
-static Address base, entry_func, exit_func;// , tls_addr;
+static Address base, entry_func, exit_func;
 uint8_t params_num;
 vector<vector<reg_id_t>> entry_exit_used_regs;
 reg_id_t DR_REG_ST1 = DR_REG_X18;
@@ -91,7 +90,6 @@ reg_id_t DR_REG_ST1 = DR_REG_X18;
 void
 save_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg_id_t> &regs)
 {
-	// analyze the code in tracelib?
     for(int i = 0; i < regs.size() - 1; i+=2) {
 	// stp reg0, reg1, [sp, #-0x10]!
 	printf("%d, %d\n", regs[i], regs[i+1]);
@@ -705,16 +703,6 @@ void addSpecialSectionPages(SymtabAPI::Symtab *symTab) {
     base += (1024*1024);
     base -= (base & (1024*1024-1));
 
-    /*
-    symTab->addRegion(base, (void*)(empty), pageSize, ".tls", SymtabAPI::Region::RT_DATA, true, 8, true);
-
-    SymtabAPI::Region *tls_section;
-    if(!symTab->findRegion(tls_section, ".tls"))
-        cout << "findRegion .tls err" << endl;
-    tls_addr = tls_section->getDiskOffset();
-    symTab->createVariable("retAddr", tls_addr, pageSize);
-    base += pageSize;
-    */
     symTab->addRegion(base, (void*)(empty), 48, ".extsym", SymtabAPI::Region::RT_TEXTDATA, true);
 
     SymtabAPI::Region *extsym_section;
@@ -817,7 +805,6 @@ int main(int argc, char** argv) {
 
     params_num = params.size();
     printf("params_num: %d\n", params_num);
-    // todo: if params_num > 8 reorganized the stack!
 
     addSpecialSectionPages(symTab);
 

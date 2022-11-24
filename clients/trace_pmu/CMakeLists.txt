@@ -8,3 +8,4 @@ target_include_directories(trace_pmu PRIVATE ./include)
 target_link_libraries(trace_pmu papi)
 target_compile_options(trace_pmu PRIVATE ${WARNINGS})
 
+install(TARGETS trace_pmu DESTINATION lib)

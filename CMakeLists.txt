@@ -2,7 +2,7 @@
 # otherwise 3.11+ for FetchContent command
 cmake_minimum_required(VERSION 3.5)
 
-project(jsiwrap LANGUAGES CXX)
+project(bira LANGUAGES CXX)
 
 # User must provide location of Dyninst cmake files either as a cache or
 # environment variable
@@ -77,11 +77,6 @@ option(LIEF_PYTHON_API "Build LIEF Python API" OFF)
 option(LIEF_EXAMPLES "Build LIEF examples" OFF)
 option(LIEF_TESTS "Build LIEF tests" OFF)
 
-if(MSVC)
-  set(LIEF_USE_CRT_RELEASE "MT" CACHE STRING "LIEF CRT option")
-endif()
-
-
 # If you have LIEF as a submodule in a directory, then you can add it to this
 # project with ``add_subdirectory``
 # NOTE: This submodule does not exist for this example, but it does the same
@@ -130,19 +125,17 @@ endif()
 # ==================
 add_compile_options(-fpermissive)
 add_library(codec SHARED codec.cpp)
-add_executable(jsiwrap jsiwrap.cpp)
-
-if(MSVC)
-  set_property(TARGET jsiwrap PROPERTY LINK_FLAGS /NODEFAULTLIB:MSVCRT)
-endif()
+add_executable(bira bira.cpp)
 
 # Enable C++11
-set_property(TARGET jsiwrap
+set_property(TARGET bira
              PROPERTY CXX_STANDARD           11
              PROPERTY CXX_STANDARD_REQUIRED  ON)
 
-target_include_directories(jsiwrap PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS})
-# Link the executable with LIEF
-target_link_libraries(jsiwrap PUBLIC codec LIEF::LIEF dyninstAPI symtabAPI common ${DYNINST_Boost_LIBRARIES})
+target_include_directories(bira PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS})
+# Link the executable with lib
+target_link_libraries(bira PUBLIC codec LIEF::LIEF dyninstAPI symtabAPI common ${DYNINST_Boost_LIBRARIES})
 
-install(TARGETS jsiwrap DESTINATION bin)
+add_subdirectory(clients)
+
+install(TARGETS bira DESTINATION bin)

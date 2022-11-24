@@ -6,3 +6,4 @@ add_library(empty_func SHARED empty_func.cpp)
 target_link_libraries(empty_func)
 target_compile_options(empty_func PRIVATE ${WARNINGS})
 
+install(TARGETS empty_func DESTINATION lib)
