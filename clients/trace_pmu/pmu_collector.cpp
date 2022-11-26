@@ -12,7 +12,7 @@ namespace {
     int _event_code = PAPI_NULL;
 }
 
-// Load PMU collection from environment variable: JSI_COLLECT_PMU_EVENT
+// Load PMU collection from environment variable: BIRA_COLLECT_PMU_EVENT
 // Currently, only support collection of 1 event, return false when failed
 // The initialization need to do:
 // 1) read the configured pmu event and registered it via PAPI
@@ -33,7 +33,7 @@ bool pmu_collector_init() {
         return false;
     }
 
-    const char *event_name = getenv("JSI_COLLECT_PMU_EVENT");
+    const char *event_name = getenv("BIRA_COLLECT_PMU_EVENT");
     if (event_name == nullptr) {
         return false;
     }
@@ -105,12 +105,12 @@ uint64_t pmu_collector_get(int i) {
 // return the number of read events.
 int pmu_collector_get_all(uint64_t *ptr) {
     if (!_pmu_initialized) {
-        JSI_ERROR("PMU collector not initialized. Aborting...\n");
+        BIRA_ERROR("PMU collector not initialized. Aborting...\n");
     }
 
     int r = PAPI_read(_eventset, reinterpret_cast<long long *>(ptr));
     if (r != PAPI_OK) {
-        JSI_WARN("PAPI_read failed with error code: %d (%s:%d)\n", r, __FILE__, __LINE__);
+        BIRA_WARN("PAPI_read failed with error code: %d (%s:%d)\n", r, __FILE__, __LINE__);
     }
 
     return 1;

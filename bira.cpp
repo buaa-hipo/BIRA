@@ -371,10 +371,19 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
 
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
     
-    instr_t * mov_x0_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X1), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
-    ins_list.push_back(mov_x0_x1);
+    instr_t * mov_x2_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X1), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x2_x1);
+    ins_code_list.push_back(0);
+    instr_t * mov_x1_x0 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X1), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x1_x0);
     ins_code_list.push_back(0);
 
+    /*
+    // read thread id
+    instr_t * mrs_thread_id_ins = INSTR_CREATE_mrs(opnd_create_reg(DR_REG_X1), opnd_create_reg(DR_REG_TPIDR_EL0));
+    ins_list.push_back(mrs_thread_id_ins);
+    ins_code_list.push_back(0);
+    */	
     instr_t * save_x30_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(0));
     ins_list.push_back(save_x30_ins);
     ins_code_list.push_back(0);
