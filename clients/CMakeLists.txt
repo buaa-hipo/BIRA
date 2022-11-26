@@ -4,4 +4,5 @@ project(clients)
 add_subdirectory(common)
 add_subdirectory(empty_func)
 add_subdirectory(trace_pmu)
+add_subdirectory(trace_params)
 

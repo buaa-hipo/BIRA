@@ -33,9 +33,9 @@ struct __RECORD_ATTR__ record_pmu_t {
 };
 
 
-struct __RECORD_ATTR__ record_params_t {
+struct record_params_t {
     record_t record;
-    std::vector<uint64_t> params_list;
+    uint64_t params_list[2];
 };
 
 #endif

@@ -39,12 +39,14 @@ struct RecordHelper {
 	    case BIRA_COLLECTED_PARAMS:
 	    {
 		record_params_t* rd = (record_params_t*)r;
-		desc += std::string("Params: ");
-		std::vector<uint64_t> params_list = rd->params_list;
-		for(auto p : params_list) {
-		    desc += std::string("PMU Counter: ") + std::to_string(p);
+		// desc += std::string("Params: ");
+		int i = 0;
+		for(auto p : rd->params_list) {
+		    desc += std::string("Params") + std::to_string(i) + std::string(": ") + std::to_string(p);
+                    desc += std::string("\n");
+		    i++;
 		}
-                desc += std::string("\n");
+                // desc += std::string("\n");
                 break;
 	    }
         }
