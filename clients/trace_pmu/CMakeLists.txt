@@ -7,8 +7,8 @@ set(HEADER ./include/pmu_collector.h ../common/include/record/record_type.h ./in
 #SET(BIRA_RECORD_LIB bira_record)
 
 add_library(trace_pmu SHARED trace_pmu.cpp pmu_collector.cpp ${HEADER})
-target_include_directories(trace_pmu PRIVATE ./include ../common/include)
-target_link_libraries(trace_pmu papi ${BIRA_RECORD_LIB})
+target_include_directories(trace_pmu PRIVATE ./include ../common/include ${PAPI_INCLUDE_DIRS})
+target_link_libraries(trace_pmu ${PAPI_LIBRARIES} ${BIRA_RECORD_LIB})
 target_compile_options(trace_pmu PRIVATE ${WARNINGS})
 
 install(TARGETS trace_pmu DESTINATION lib)

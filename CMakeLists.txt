@@ -66,7 +66,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Set the C and C++ language API and ABI standards
-include(LanguageStandards)
+#include(LanguageStandards)
 
 # Use LIEF as an embedded/vendored project
 # ========================================
@@ -120,6 +120,9 @@ else()
   endif()
 endif()
 
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
+
+find_package(PAPI REQUIRED)
 
 # Add our executable
 # ==================
@@ -138,4 +141,5 @@ target_link_libraries(bira PUBLIC codec LIEF::LIEF dyninstAPI symtabAPI common $
 
 add_subdirectory(clients)
 
+install(TARGETS codec DESTINATION lib)
 install(TARGETS bira DESTINATION bin)
