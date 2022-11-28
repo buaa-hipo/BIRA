@@ -8,8 +8,6 @@
 #include "record/record_type.h"
 #include "record_writer.h"
 
-thread_local bool init = false;
-
 thread_local uint64_t depth, lr;
 thread_local std::vector<uint64_t> saved_lr;
 
@@ -42,12 +40,9 @@ void RecordWriter::writeAndClear() {
 }
 
 extern "C" void trace_entry_func(uint64_t lr, uint64_t params_0, uint64_t params_1) {
-    if (!init) {
+    if (!_bira_record_inited) {
         uint64_t thread_id = omp_get_thread_num();    
         RecordWriter::init(thread_id);
-        init = true;
-    } else {
-        // BIRA_WARN("BIRA trace_pmu already initialized.\n");
     }
 
     rec = (record_params_t*)RecordWriter::allocate(sizeof(record_params_t));

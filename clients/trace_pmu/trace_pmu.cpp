@@ -9,12 +9,11 @@
 #include "record/record_type.h"
 #include "record_writer.h"
 
-thread_local bool init = false;
-
 thread_local uint64_t depth, lr;
 thread_local std::vector<uint64_t> saved_lr;
 
 thread_local record_pmu_t* rec;
+thread_local std::vector<record_pmu_t*> rec_list;
 
 thread_local uint8_t* _bira_rec_buffer = NULL;
 thread_local int _bira_rec_buffer_size = 0;
@@ -49,15 +48,13 @@ void RecordWriter::writeAndClear() {
 }
 
 extern "C" void trace_entry_func(uint64_t lr) {
-    if (!init) {
+    if (!_bira_record_inited) {
         uint64_t thread_id = omp_get_thread_num();    
         RecordWriter::init(thread_id);
-        init = true;
-    } else {
-        // BIRA_WARN("BIRA trace_pmu already initialized.\n");
     }
 
     rec = (record_pmu_t*)RecordWriter::allocate(sizeof(record_pmu_t));
+    rec_list.push_back(rec);
     rec[0].record.type = BIRA_COLLECTED_PMU;
     rec[0].record.timestamps.enter = get_tsc_raw();
     rec[0].counter.enter = pmu_collector_get(0);
@@ -67,9 +64,12 @@ extern "C" void trace_entry_func(uint64_t lr) {
 }
 
 extern "C" uint64_t trace_exit_func() {
+    depth--;
+    rec = rec_list[depth];
     rec[0].record.timestamps.exit = get_tsc_raw();
     rec[0].counter.exit = pmu_collector_get(0);
-    depth--;
+    rec_list.pop_back();
+
     lr = saved_lr[depth];
     saved_lr.pop_back();
     return lr;
