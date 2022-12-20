@@ -135,7 +135,7 @@ set_property(TARGET bira
              PROPERTY CXX_STANDARD           11
              PROPERTY CXX_STANDARD_REQUIRED  ON)
 
-target_include_directories(bira PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS})
+target_include_directories(bira PRIVATE ${DYNINST_INCLUDE_DIR} ${DYNINST_Boost_INCLUDE_DIRS} ${DYNINST_TBB_INCLUDE_DIRS} ./clients/common/include/)
 # Link the executable with lib
 target_link_libraries(bira PUBLIC codec LIEF::LIEF dyninstAPI symtabAPI common ${DYNINST_Boost_LIBRARIES})
 

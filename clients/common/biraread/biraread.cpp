@@ -100,8 +100,8 @@ int main(int argc, char *argv[]) {
             RecordTrace* rt = it.second;
             int i = 0;
             for(RecordTraceIterator rit=rt->begin(); rit!=rt->end(); rit=rit.next(),++i) {
-                fprintf(fp, "=== Event %d ===\n", i);
-                fprintf(fp, "%s\n", RecordHelper::dump_string(rit.val()).c_str());
+                // fprintf(fp, "=== Event %d ===\n", i);
+                fprintf(fp, "%s", RecordHelper::dump_string(rit.val(), i).c_str());
             }
 	    if(is_dump) {
                 fclose(fp);

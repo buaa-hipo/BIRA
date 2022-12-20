@@ -6,6 +6,7 @@
 #include <string>
 
 #include "codec.h"
+#include "utils/cxxopts.hpp"
 
 #include <LIEF/ELF.hpp>
 #include <LIEF/enums.hpp>
@@ -92,7 +93,7 @@ save_regs(vector<instr_t*> &ins_list, vector<uint> &ins_code_list, vector<reg_id
 {
     for(int i = 0; i < regs.size() - 1; i+=2) {
 	// stp reg0, reg1, [sp, #-0x10]!
-	printf("%d, %d\n", regs[i], regs[i+1]);
+	// printf("%d, %d\n", regs[i], regs[i+1]);
     	instr_t * stp1_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(regs[i]), opnd_create_reg(regs[i+1]));
     	ins_list.push_back(stp1_ins);
     	ins_code_list.push_back(0);
@@ -269,6 +270,7 @@ call_external_func(vector<uint> &ins_code_list, vector<instr_t*> &ins_list, uint
     ins_code_list.push_back(0);
 }
 
+// TODO:push_params_below_save_regs
 void
 push_params_below_X2930(vector<uint> &ins_code_list, vector<instr_t*> &ins_list, int stack_params_num)
 {
@@ -287,6 +289,13 @@ push_params_below_X2930(vector<uint> &ins_code_list, vector<instr_t*> &ins_list,
 
 }
 
+// TODO
+void
+mov_params_for_trace(vector<uint> &ins_code_list, vector<instr_t*> &ins_list)
+{
+
+}
+
 bool
 restore_replaced_ins_before(int stack_params_num, vector<instr_t *> &replaced_instrs, vector<uint> &ins_code_list, vector<instr_t*> &ins_list, bool isBlr)
 {
@@ -298,7 +307,7 @@ restore_replaced_ins_before(int stack_params_num, vector<instr_t *> &replaced_in
 	    for(int j = 0; j < op_num; j++) {
 	        // printf("x3 == %d, sp == %d, opnd_get_reg(opnd): %d, op kind: %d\n", DR_REG_X3, DR_REG_XSP, opnd_get_reg(instr_get_dst(i, j)), instr_get_dst(i, j).kind);
 	        if(opnd_uses_reg(instr_get_dst(i, j), DR_REG_XSP)) {
-	            printf("opcode: %d\n", i->opcode);
+	            // printf("opcode: %d\n", i->opcode);
 		    use_sp = true;
 		    break;
 	        }
@@ -371,10 +380,16 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
 
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
     
-    instr_t * mov_x2_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X1), OPND_CREATE_INT32(0));
+    // TODO: use mov_params_for_trace instead
+    instr_t * mov_x2_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X3), opnd_create_reg(DR_REG_X1), OPND_CREATE_INT32(0));
     ins_list.push_back(mov_x2_x1);
     ins_code_list.push_back(0);
-    instr_t * mov_x1_x0 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X1), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
+
+    instr_t * mov_x1_params_num = INSTR_CREATE_movz(opnd_create_reg(DR_REG_X1), OPND_CREATE_INT8(params_num), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x1_params_num);
+    ins_code_list.push_back(0);
+    
+    instr_t * mov_x1_x0 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
     ins_list.push_back(mov_x1_x0);
     ins_code_list.push_back(0);
 
@@ -496,7 +511,7 @@ encode_section(SymtabAPI::Symtab *symTab, uint &wrapper_addr, vector<instr_t *> 
              cout << "special_section patchData err!" << endl;
         special_offset += special_code_size;
     }
-    printf("wrapper_addr = %llx\n", wrapper_addr);
+    // printf("wrapper_addr = %llx\n", wrapper_addr);
 }
 
 vector<instr_t*>
@@ -518,7 +533,7 @@ vector<reg_id_t>
 getEntryExitFuncUsedRegs(std::unique_ptr<const Binary> &lib, string &trace_func_name)
 {
     Symbol * trace_func = lib->get_symbol(trace_func_name);
-    printf("trace_func va = %d, size = %d\n", trace_func->value(), trace_func->size());
+    // printf("trace_func va = %d, size = %d\n", trace_func->value(), trace_func->size());
     vector<uint8_t> trace_func_content = lib->get_content_from_virtual_address(trace_func->value(), trace_func->size());
 
     vector<uint> ins_code_list;
@@ -616,7 +631,7 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
         if((isBlr || (decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr))) {
 	    bool can_replace_before = (branch_addrs.find(file_offset + (i)*4) == branch_addrs.end());
 	    bool can_replace_after = (branch_addrs.find(file_offset + (i+1)*4) == branch_addrs.end());
-	    printf("%llx\n", file_offset + (i)*4);
+	    // printf("%llx\n", file_offset + (i)*4);
 	    if(!can_replace_before && !can_replace_after) {
 	        printf("skip!\n");	
 		continue;
@@ -775,35 +790,92 @@ Address addExternalFuncSymbol(SymtabAPI::Symtab *symTab, SymtabAPI::Symtab *lib,
     return relocation_address;
 }
 
+std::string input_file;
+std::string func_name;
+std::string trace_lib;
+
+// TODO: add -tp,--trace_params option to enable params tracing
+void parse(int argc, char *argv[]) {
+    cxxopts::Options options("bira", "Binary rewriting tool for arm.");
+    options.add_options()
+        ("f,func", "Target function name", cxxopts::value<std::string>())
+        ("h,help", "Print help")
+        ("i,input", "Input binary file", cxxopts::value<std::string>())
+        ("l,link", "External shared library for linking",cxxopts::value<std::string>())
+        ;
+
+    try {
+        auto result = options.parse(argc, argv);
+        // print help message if configured
+        if (result.count("help")) {
+            std::cout << options.help() << std::endl;
+            exit(1);
+        }
+        if (result.count("input")>=1) {
+            if(result.count("input")>2) {
+                std::cout << "Warning: multiple input binary file configured. Only use the last one!" << std::endl;
+            }
+            input_file = result["input"].as<std::string>();
+        } else {
+            std::cout << "-i or --input must be specified!" << std::endl;
+            exit(1);
+        }
+        if (result.count("func")>=1) {
+            if(result.count("func")>2) {
+                std::cout << "Warning: multiple function configured. Only use the last one!" << std::endl;
+            }
+            func_name = result["func"].as<std::string>();
+        } else {
+            std::cout << "-f or --func must be specified!" << std::endl;
+            exit(1);
+        }
+        if (result.count("link")>=1) {
+            if(result.count("link")>2) {
+                std::cout << "Warning: multiple library configured. Only use the last one!" << std::endl;
+            }
+            trace_lib = result["link"].as<std::string>();
+        } else {
+            std::cout << "-l or --link must be specified!" << std::endl;
+            exit(1);
+        }
+        std::cout << "Configured: " << std::endl;
+        std::cout << "\t" << "Input: " << input_file << std::endl;
+        std::cout << "\t" << "Function: " << func_name << std::endl;
+        std::cout << "\t" << "Trace Library: " << trace_lib << std::endl;
+    } catch (cxxopts::exceptions::exception e) {
+        std::cout << "Error: " << e.what() << std::endl;
+        std::cout << options.help() << std::endl;
+        exit(1);
+    }
+}
+
 /* agrv[1] == <exe> argv[2] == <lib> argv[3] == <func>*/
 int main(int argc, char** argv) {
-    std::unique_ptr<const Binary> binary{Parser::parse(argv[1])};
-    std::unique_ptr<const Binary> lib{Parser::parse(argv[2])};
-    char *binaryPath = argv[2];
+    parse(argc, argv);
+
+    std::unique_ptr<const Binary> binary{Parser::parse(input_file)};
+    std::unique_ptr<const Binary> lib{Parser::parse(trace_lib)};
+
     SymtabAPI::Symtab *symTab, *libhook;
 
-    string libhookPathStr(binaryPath);
-    if(!SymtabAPI::Symtab::openFile(libhook, libhookPathStr)) {
+    if(!SymtabAPI::Symtab::openFile(libhook, trace_lib)) {
         cerr << "error: file cannot be parsed";
         return -1;
     }
 
-    binaryPath = argv[1];
-    string binaryPathStr(binaryPath);
-
-    if(!SymtabAPI::Symtab::openFile(symTab, binaryPathStr)) {
+    if(!SymtabAPI::Symtab::openFile(symTab, input_file)) {
         cerr << "error: file cannot be parsed";
         return -1;
     }
 
     vector<SymtabAPI::Function*> target_func;
-    if(!symTab->findFunctionsByName(target_func, move(argv[3]))) {
-        cout << "cannot find " << argv[3] << endl;
+    if(!symTab->findFunctionsByName(target_func, func_name)) {
+        cout << "cannot find " << func_name << endl;
         return -1;
     }
 
     uint func_addr = target_func[0]->getOffset();
-    printf("target_func offset: %llx\n", func_addr);
+    // printf("target_func offset: %llx\n", func_addr);
 
     vector<SymtabAPI::localVar *> params;
     if(!target_func[0]->getParams(params)) {
@@ -820,29 +892,29 @@ int main(int argc, char** argv) {
     string entry_func_name("trace_entry_func");
     entry_func = addExternalFuncSymbol(symTab, libhook, entry_func_name);
     assert(entry_func);
-    printf("entry_func = %llx\n", entry_func);
+    // printf("entry_func = %llx\n", entry_func);
     vector<reg_id_t> regs0 = getEntryExitFuncUsedRegs(lib, entry_func_name);
-    printf("X0 = %u\n", DR_REG_X0);
-    for(auto reg : regs0) printf("%u\n", reg);
+    // printf("X0 = %u\n", DR_REG_X0);
+    // for(auto reg : regs0) printf("%u\n", reg);
 
     string exit_func_name("trace_exit_func");
     exit_func = addExternalFuncSymbol(symTab, libhook, exit_func_name);
     assert(exit_func);
-    printf("exit_func = %llx\n", exit_func);
+    // printf("exit_func = %llx\n", exit_func);
     vector<reg_id_t> regs1 = getEntryExitFuncUsedRegs(lib, exit_func_name);
-    printf("X0 = %u\n", DR_REG_X0);
-    for(auto reg : regs1) printf("%u\n", reg);
+    // printf("X0 = %u\n", DR_REG_X0);
+    // for(auto reg : regs1) printf("%u\n", reg);
 
     entry_exit_used_regs.push_back(regs0);
     entry_exit_used_regs.push_back(regs1);
 
     modify_text_dyn(binary, func_addr, symTab);
-    if(!symTab->addLibraryPrereq(argv[2])) {
+    if(!symTab->addLibraryPrereq(trace_lib)) {
         cerr << "error: add library";
         return -1;
     }
 
-    string outfile(argv[1]);
+    string outfile(input_file);
     outfile += ".dyn"; 
 
     if (!symTab->emit(outfile)) {

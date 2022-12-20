@@ -22,11 +22,6 @@ struct RecordWriter {
     
     public:
     inline static void init(int thread_id) {
-	    /*
-        if(_bira_record_inited) {
-            return ;
-        }
-	*/
         _bira_rec_buffer = (uint8_t*)malloc(PREALLOCATE_BUFFSIZE);
         char* envPath = getenv("BIRA_MEASUREMENT_DIR");
         if(!envPath) {

@@ -24,14 +24,15 @@ struct RecordHelper {
     // ...
     // Dump
     static inline __attribute__((always_inline))
-    std::string dump_string(record_t* r) {
+    std::string dump_string(record_t* r, int event_id) {
         std::string desc;
-        desc+= std::string("Start Time: ") + std::to_string(r->timestamps.enter) + std::string("\n");
-        desc+= std::string("End Time: ") + std::to_string(r->timestamps.exit) + std::string("\n");
-        desc+= std::string("Duration: ") + std::to_string(r->timestamps.exit-r->timestamps.enter) + std::string("\n");
         switch (r->type) {
 	    case BIRA_COLLECTED_PMU:
             {
+		desc+= std::string("=== Event ") + std::to_string(event_id) + std::string(" ===\n");
+                desc+= std::string("Start Time: ") + std::to_string(r->timestamps.enter) + std::string("\n");
+                desc+= std::string("End Time: ") + std::to_string(r->timestamps.exit) + std::string("\n");
+                desc+= std::string("Duration: ") + std::to_string(r->timestamps.exit-r->timestamps.enter) + std::string("\n");
                 record_pmu_t* rd = (record_pmu_t*)r;
 		desc += std::string("PMU Counter: ") + std::to_string(rd->counter.exit-rd->counter.enter) + std::string("\n");
 		break;
@@ -40,14 +41,19 @@ struct RecordHelper {
 	    {
 		record_params_t* rd = (record_params_t*)r;
 		// desc += std::string("Params: ");
-		int i = 0;
-		for(auto p : rd->params_list) {
-		    desc += std::string("Params") + std::to_string(i) + std::string(": ") + std::to_string(p);
-                    desc += std::string("\n");
-		    i++;
-		}
-                // desc += std::string("\n");
+		// desc += std::string("Params") + std::to_string(i) + std::string(": ") + std::to_string(rd->params);
+		desc += std::to_string(rd->params);
+                desc += std::string("\n");
                 break;
+	    }
+	    default:
+	    {
+		desc+= std::string("\n=== Event ") + std::to_string(event_id) + std::string(" ===\n");
+                desc+= std::string("Start Time: ") + std::to_string(r->timestamps.enter) + std::string("\n");
+                desc+= std::string("End Time: ") + std::to_string(r->timestamps.exit) + std::string("\n");
+                desc+= std::string("Duration: ") + std::to_string(r->timestamps.exit-r->timestamps.enter) + std::string("\n");
+		desc += std::string("Params List:\n");
+		break;
 	    }
         }
         return desc;

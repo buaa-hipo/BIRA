@@ -10,6 +10,8 @@
 #define BIRA_COLLECTED_PARAMS ((int16_t)(-1))
 #define BIRA_COLLECTED_PMU ((int16_t)(0))
 
+#define BIRA_NO_PACKED
+
 #ifndef BIRA_NO_PACKED
 #define __RECORD_ATTR__ __attribute__((__packed__))
 #else
@@ -32,10 +34,9 @@ struct __RECORD_ATTR__ record_pmu_t {
     metric_t counter;
 };
 
-
 struct record_params_t {
-    record_t record;
-    uint64_t params_list[2];
+    int16_t type;
+    uint64_t params;
 };
 
 #endif
