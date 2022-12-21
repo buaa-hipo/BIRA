@@ -56,17 +56,17 @@ extern "C" void trace_entry_func(uint64_t lr) {
     rec = (record_pmu_t*)RecordWriter::allocate(sizeof(record_pmu_t));
     rec_list.push_back(rec);
     rec[0].record.type = BIRA_COLLECTED_PMU;
-    rec[0].record.timestamps.enter = get_tsc_raw();
     rec[0].counter.enter = pmu_collector_get(0);
     saved_lr.push_back(lr);
     depth++;
+    rec[0].record.timestamps.enter = get_tsc_raw();
     return;
 }
 
 extern "C" uint64_t trace_exit_func() {
+    rec[0].record.timestamps.exit = get_tsc_raw();
     depth--;
     rec = rec_list[depth];
-    rec[0].record.timestamps.exit = get_tsc_raw();
     rec[0].counter.exit = pmu_collector_get(0);
     rec_list.pop_back();
 

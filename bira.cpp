@@ -85,6 +85,7 @@ getByteslist(vector<instr_t*> &instr_list, vector<uint> &ins_code_list)
 
 static Address base, entry_func, exit_func;
 uint8_t params_num;
+bool trace_params;
 vector<vector<reg_id_t>> entry_exit_used_regs;
 reg_id_t DR_REG_ST1 = DR_REG_X18;
 
@@ -272,28 +273,69 @@ call_external_func(vector<uint> &ins_code_list, vector<instr_t*> &ins_list, uint
 
 // TODO:push_params_below_save_regs
 void
-push_params_below_X2930(vector<uint> &ins_code_list, vector<instr_t*> &ins_list, int stack_params_num)
+push_params_below_save_regs(vector<uint> &ins_code_list, vector<instr_t*> &ins_list, int stack_params_num, int save_regs_off)
 {
     if(stack_params_num < 0) return;
-    uint old_stack_off = stack_params_num * 16;
+    uint old_stack_off = stack_params_num * 16 + save_regs_off;
     for(int i = 0; i < stack_params_num; i++) {
 	int count = (i + 1) * -16;
-        instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_ST1), opnd_create_reg(DR_REG_X30), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, old_stack_off + count, OPSZ_16));
+        instr_t * ldp_ins = INSTR_CREATE_ldp(opnd_create_reg(DR_REG_X9), opnd_create_reg(DR_REG_X10), opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, old_stack_off + count, OPSZ_16));
         ins_list.push_back(ldp_ins);
         ins_code_list.push_back(0);
 
-        instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, count-16, OPSZ_16), opnd_create_reg(DR_REG_ST1), opnd_create_reg(DR_REG_X30));
+        instr_t * stp_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, count, OPSZ_16), opnd_create_reg(DR_REG_X9), opnd_create_reg(DR_REG_X10));
         ins_list.push_back(stp_ins);
         ins_code_list.push_back(0);
     }
-
 }
 
 // TODO
+// x0: lr, x1: params_num, x2: x0, ... x7: x5
 void
 mov_params_for_trace(vector<uint> &ins_code_list, vector<instr_t*> &ins_list)
 {
-
+    if(params_num >= 7) {
+	instr_t * stp_x6_x7_ins = INSTR_CREATE_stp(opnd_create_base_disp(DR_REG_XSP, DR_REG_NULL, 0, -16, OPSZ_16), opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X7));
+        ins_list.push_back(stp_x6_x7_ins);
+        ins_code_list.push_back(0);
+        
+	instr_t* sub_ins1 = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
+        ins_list.push_back(sub_ins1);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 6) {
+	instr_t * mov_x7_x5 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X7), opnd_create_reg(DR_REG_X5), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x7_x5);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 5) {
+	instr_t * mov_x6_x4 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X6), opnd_create_reg(DR_REG_X4), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x6_x4);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 4) {
+	instr_t * mov_x5_x3 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X5), opnd_create_reg(DR_REG_X3), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x5_x3);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 3) {
+	instr_t * mov_x4_x2 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X4), opnd_create_reg(DR_REG_X2), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x4_x2);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 2) {
+	instr_t * mov_x3_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X3), opnd_create_reg(DR_REG_X1), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x3_x1);
+        ins_code_list.push_back(0);
+    }
+    if(params_num >= 1) {
+	instr_t * mov_x2_x0 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
+        ins_list.push_back(mov_x2_x0);
+        ins_code_list.push_back(0);
+    }
+    instr_t * mov_x1_params_num = INSTR_CREATE_movz(opnd_create_reg(DR_REG_X1), OPND_CREATE_INT8(params_num), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x1_params_num);
+    ins_code_list.push_back(0);
 }
 
 bool
@@ -353,6 +395,8 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
     vector<uint> ins_code_list;
     vector<instr_t*> ins_list;
 
+    int stack_params_num = (params_num - 8) / 2 + (params_num - 8) % 2;
+
     if(replace_before)
         restore_replaced_ins(instrs, ins_code_list, ins_list, isBlr);   
 
@@ -365,9 +409,9 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
     ins_list.push_back(sub_ins1);
     ins_code_list.push_back(0);
 
-    // instr_t * mov_x29_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(0));
-    // ins_list.push_back(mov_x29_ins);
-    // ins_code_list.push_back(0);
+    instr_t * mov_x29_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(0));
+    ins_list.push_back(mov_x29_ins);
+    ins_code_list.push_back(0);
     
     if(isBlr) {
 	// use ins_list size to cal ins nums and update the offset!!!
@@ -379,31 +423,32 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
     }
 
     save_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
-    
-    // TODO: use mov_params_for_trace instead
-    instr_t * mov_x2_x1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X3), opnd_create_reg(DR_REG_X1), OPND_CREATE_INT32(0));
-    ins_list.push_back(mov_x2_x1);
-    ins_code_list.push_back(0);
 
-    instr_t * mov_x1_params_num = INSTR_CREATE_movz(opnd_create_reg(DR_REG_X1), OPND_CREATE_INT8(params_num), OPND_CREATE_INT32(0));
-    ins_list.push_back(mov_x1_params_num);
-    ins_code_list.push_back(0);
-    
-    instr_t * mov_x1_x0 = INSTR_CREATE_add(opnd_create_reg(DR_REG_X2), opnd_create_reg(DR_REG_X0), OPND_CREATE_INT32(0));
-    ins_list.push_back(mov_x1_x0);
-    ins_code_list.push_back(0);
+    if(trace_params) {
+        push_params_below_save_regs(ins_code_list, ins_list, stack_params_num, entry_exit_used_regs[0].size() * 8 + 16/*save general and x29, x30*/);
 
-    /*
-    // read thread id
-    instr_t * mrs_thread_id_ins = INSTR_CREATE_mrs(opnd_create_reg(DR_REG_X1), opnd_create_reg(DR_REG_TPIDR_EL0));
-    ins_list.push_back(mrs_thread_id_ins);
-    ins_code_list.push_back(0);
-    */	
+        if(stack_params_num > 0) {
+            instr_t* sub_params_ins = INSTR_CREATE_sub(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(stack_params_num*16));
+            ins_list.push_back(sub_params_ins);
+            ins_code_list.push_back(0);
+        }
+
+        mov_params_for_trace(ins_code_list, ins_list);
+    }
+
     instr_t * save_x30_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X0), opnd_create_reg(DR_REG_X30), OPND_CREATE_INT32(0));
     ins_list.push_back(save_x30_ins);
     ins_code_list.push_back(0);
 
     call_external_func(ins_code_list, ins_list, entry_func);
+
+    if(trace_params) {
+        if(stack_params_num > 0) {
+            instr_t* add_params_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32((stack_params_num+1)*16));
+            ins_list.push_back(add_params_ins);
+            ins_code_list.push_back(0);
+	}
+    }
 
     restore_regs(ins_list, ins_code_list, entry_exit_used_regs[0]);
 
@@ -414,12 +459,6 @@ appendCode(vector<instr_t *> &instrs, uint func_addr, bool newSection, bool isBl
     instr_t* add_ins1 = INSTR_CREATE_add(opnd_create_reg(DR_REG_XSP), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(16));
     ins_list.push_back(add_ins1);
     ins_code_list.push_back(0);
-
-    /*
-    instr_t * mov_x29_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_X29), opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT32(0));
-    ins_list.push_back(mov_x29_ins);
-    ins_code_list.push_back(0);
-*/
 
     if(isBlr) {
 	ins_list.push_back(instrs[0]);
@@ -802,6 +841,7 @@ void parse(int argc, char *argv[]) {
         ("h,help", "Print help")
         ("i,input", "Input binary file", cxxopts::value<std::string>())
         ("l,link", "External shared library for linking",cxxopts::value<std::string>())
+        ("tp", "Enable parameters tracing")
         ;
 
     try {
@@ -842,6 +882,11 @@ void parse(int argc, char *argv[]) {
         std::cout << "\t" << "Input: " << input_file << std::endl;
         std::cout << "\t" << "Function: " << func_name << std::endl;
         std::cout << "\t" << "Trace Library: " << trace_lib << std::endl;
+        if (result.count("tp")>=1) {
+            trace_params = true;
+        } else {
+            trace_params = false;
+	}
     } catch (cxxopts::exceptions::exception e) {
         std::cout << "Error: " << e.what() << std::endl;
         std::cout << options.help() << std::endl;

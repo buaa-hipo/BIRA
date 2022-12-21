@@ -43,8 +43,9 @@ void RecordWriter::writeAndClear() {
 }
 
 // extern "C" void trace_entry_func(uint64_t lr, uint64_t params_0, uint64_t params_1) {
-// extern "C" void trace_entry_func(uint64_t lr, uint64_t num, ...) {
-extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, uint64_t params_1) {
+extern "C" void trace_entry_func(uint64_t lr, uint64_t num, ...) {
+// extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, uint64_t params_1) {
+    rec[0].timestamps.enter = get_tsc_raw();
     if (!_bira_record_inited) {
         uint64_t thread_id = omp_get_thread_num();    
         RecordWriter::init(thread_id);
@@ -53,9 +54,7 @@ extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, u
     rec = (record_t*)RecordWriter::allocate(sizeof(record_t));
     rec_list.push_back(rec);
     rec[0].type = BIRA_DEFAULT;
-    rec[0].timestamps.enter = get_tsc_raw();
 
-    /*
     va_list valist;
     va_start(valist, num);
     for (int i = 0; i < num; i++) {
@@ -64,7 +63,7 @@ extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, u
         rec_p[0].type = BIRA_COLLECTED_PARAMS;
     }
     va_end(valist);
-*/
+    /*
         rec_p = (record_params_t*)RecordWriter::allocate(sizeof(record_params_t));
         rec_p[0].params = params_0;
         rec_p[0].type = BIRA_COLLECTED_PARAMS;
@@ -72,16 +71,17 @@ extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, u
         rec_p = (record_params_t*)RecordWriter::allocate(sizeof(record_params_t));
         rec_p[0].params = params_1;
         rec_p[0].type = BIRA_COLLECTED_PARAMS;
+*/
     saved_lr.push_back(lr);
     depth++;
     return;
 }
 
 extern "C" uint64_t trace_exit_func() {
+    rec[0].timestamps.exit = get_tsc_raw();
     depth--;
 
     rec = rec_list[depth];
-    rec[0].timestamps.exit = get_tsc_raw();
     rec_list.pop_back();
 
     lr = saved_lr[depth];
