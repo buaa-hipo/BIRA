@@ -1,12 +1,11 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
-#include <omp.h>
 
 thread_local uint64_t depth, lr;
 thread_local std::vector<uint64_t> saved_lr;
 
-extern "C" void trace_entry_func(uint64_t lr, uint64_t thread_id) {
+extern "C" void trace_entry_func(uint64_t lr) {
     saved_lr.push_back(lr);
     depth++;
     return;

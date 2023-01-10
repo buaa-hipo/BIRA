@@ -9,8 +9,7 @@
 #include "record/record_type.h"
 #include "record_writer.h"
 
-thread_local uint64_t depth, lr;
-thread_local std::vector<uint64_t> saved_lr;
+thread_local uint64_t depth;
 
 thread_local record_params_t* rec_p;
 thread_local record_t* rec;
@@ -42,9 +41,7 @@ void RecordWriter::writeAndClear() {
     return ;
 }
 
-// extern "C" void trace_entry_func(uint64_t lr, uint64_t params_0, uint64_t params_1) {
-extern "C" void trace_entry_func(uint64_t lr, uint64_t num, ...) {
-// extern "C" void trace_entry_func(uint64_t lr, uint64_t num, uint64_t params_0, uint64_t params_1) {
+extern "C" void trace_entry_func(uint64_t num, ...) {
     if (!_bira_record_inited) {
         uint64_t thread_id = omp_get_thread_num();    
         RecordWriter::init(thread_id);
@@ -62,29 +59,18 @@ extern "C" void trace_entry_func(uint64_t lr, uint64_t num, ...) {
         rec_p[0].type = BIRA_COLLECTED_PARAMS;
     }
     va_end(valist);
-    /*
-        rec_p = (record_params_t*)RecordWriter::allocate(sizeof(record_params_t));
-        rec_p[0].params = params_0;
-        rec_p[0].type = BIRA_COLLECTED_PARAMS;
 
-        rec_p = (record_params_t*)RecordWriter::allocate(sizeof(record_params_t));
-        rec_p[0].params = params_1;
-        rec_p[0].type = BIRA_COLLECTED_PARAMS;
-*/
-    saved_lr.push_back(lr);
     depth++;
     rec[0].timestamps.enter = get_tsc_raw();
     return;
 }
 
-extern "C" uint64_t trace_exit_func() {
+extern "C" void trace_exit_func() {
     rec[0].timestamps.exit = get_tsc_raw();
     depth--;
 
     rec = rec_list[depth];
     rec_list.pop_back();
 
-    lr = saved_lr[depth];
-    saved_lr.pop_back();
-    return lr;
+    return;
 }

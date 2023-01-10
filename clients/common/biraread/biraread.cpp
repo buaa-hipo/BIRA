@@ -98,10 +98,10 @@ int main(int argc, char *argv[]) {
             }
             std::cout << "## " << rankOrThread << " " << it.first << std::endl;
             RecordTrace* rt = it.second;
-            int i = 0;
+            int i = 0, event_id = 0;
             for(RecordTraceIterator rit=rt->begin(); rit!=rt->end(); rit=rit.next(),++i) {
                 // fprintf(fp, "=== Event %d ===\n", i);
-                fprintf(fp, "%s", RecordHelper::dump_string(rit.val(), i).c_str());
+                fprintf(fp, "%s", RecordHelper::dump_string(rit.val(), event_id).c_str());
             }
 	    if(is_dump) {
                 fclose(fp);

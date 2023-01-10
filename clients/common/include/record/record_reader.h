@@ -4,6 +4,7 @@
 #include "record/record_defines.h"
 #include "utils/bira_log.h"
 #include <unordered_map>
+#include <sstream>
 
 struct RecordHelper {
     static inline __attribute__((always_inline))
@@ -24,11 +25,12 @@ struct RecordHelper {
     // ...
     // Dump
     static inline __attribute__((always_inline))
-    std::string dump_string(record_t* r, int event_id) {
+    std::string dump_string(record_t* r, int &event_id) {
         std::string desc;
         switch (r->type) {
 	    case BIRA_COLLECTED_PMU:
             {
+		event_id ++;
 		desc+= std::string("=== Event ") + std::to_string(event_id) + std::string(" ===\n");
                 desc+= std::string("Start Time: ") + std::to_string(r->timestamps.enter) + std::string("\n");
                 desc+= std::string("End Time: ") + std::to_string(r->timestamps.exit) + std::string("\n");
@@ -40,14 +42,16 @@ struct RecordHelper {
 	    case BIRA_COLLECTED_PARAMS:
 	    {
 		record_params_t* rd = (record_params_t*)r;
-		// desc += std::string("Params: ");
-		// desc += std::string("Params") + std::to_string(i) + std::string(": ") + std::to_string(rd->params);
-		desc += std::to_string(rd->params);
+		std::ostringstream ss;
+                ss << "0x" << std::hex << rd->params;
+
+		desc += ss.str();
                 desc += std::string("\n");
                 break;
 	    }
 	    default:
 	    {
+		event_id ++;
 		desc+= std::string("\n=== Event ") + std::to_string(event_id) + std::string(" ===\n");
                 desc+= std::string("Start Time: ") + std::to_string(r->timestamps.enter) + std::string("\n");
                 desc+= std::string("End Time: ") + std::to_string(r->timestamps.exit) + std::string("\n");
