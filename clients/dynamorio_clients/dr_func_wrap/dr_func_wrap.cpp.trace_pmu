@@ -1,0 +1,262 @@
+#include <iostream>
+#include <omp.h>
+
+#include "dr_api.h"
+#include "drmgr.h"
+#include "drsyms.h"
+#include "drwrap.h"
+#include "droption.h"
+
+#include "pmu_collector.h"
+#include "tsc_timer.h"
+#include "bira_log.h"
+#include "record_type.h"
+
+#ifdef WINDOWS
+#    define IF_WINDOWS_ELSE(x, y) x
+#else
+#    define IF_WINDOWS_ELSE(x, y) y
+#endif
+
+#ifdef WINDOWS
+#    define DISPLAY_STRING(msg) dr_messagebox(msg)
+#else
+#    define DISPLAY_STRING(msg) dr_printf("%s\n", msg);
+#endif
+
+#define NULL_TERMINATE(buf) (buf)[(sizeof((buf)) / sizeof((buf)[0])) - 1] = '\0'
+
+#define PREALLOCATE_BUFFSIZE 4096
+#define DEFAULT_PROFILE_BASE "data."
+#define BIRA_TRACE_FILE_EXT ".tr"
+
+typedef struct _per_thread_t {
+    uint64_t depth;
+    uint8_t* _rec_buffer = NULL;
+    int _rec_buffer_size = 0;
+    bool _record_inited = false;
+    FILE *_record_file;
+    // file_t output_file;
+    int32_t threadId;
+    record_pmu_t* rec;
+    std::vector<record_pmu_t*> *rec_list;
+} per_thread_t;
+
+enum {
+    INSTRACE_TLS_OFFS_BUF_PTR,
+    INSTRACE_TLS_COUNT, /* total number of TLS slots allocated */
+};
+
+static void
+event_exit(void);
+static void
+wrap_pre(void *wrapcxt, OUT void **user_data);
+static void
+wrap_post(void *wrapcxt, void *user_data);
+static droption_t<std::string> op_func
+(DROPTION_SCOPE_CLIENT, "f", "malloc", "Target function name",
+ "Target function name.");
+
+static int tls_idx;
+static reg_id_t tls_seg;
+static uint tls_offs;
+
+static void *max_lock; /* to synch writes to max_malloc */
+
+void writeAndClear() {
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *pt = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+
+    fwrite(pt->_rec_buffer, 1, pt->_rec_buffer_size, pt->_record_file);
+    pt->_rec_buffer_size = 0;
+    return ;
+}
+
+inline static void* allocate(per_thread_t *pt, size_t size) {
+    if(pt->_rec_buffer_size+size>=PREALLOCATE_BUFFSIZE) {
+        writeAndClear();
+    }
+    void* p = pt->_rec_buffer + pt->_rec_buffer_size;
+    pt->_rec_buffer_size += size;
+    return p;
+}
+
+inline static void finalize(per_thread_t *pt) {
+    if(!pt->_record_inited) {
+        return;
+    }
+    if(pt->_rec_buffer_size != 0) {
+        writeAndClear();
+        pt->_rec_buffer_size = 0;
+    }
+    fclose(pt->_record_file);
+    pt->_record_inited = false;
+}
+
+
+inline static void ThreadOutputInit(int thread_id, per_thread_t *pt) {
+    if(pt->_record_inited) {
+        return ;
+    }
+    pt->_rec_buffer = (uint8_t*)dr_global_alloc(PREALLOCATE_BUFFSIZE);
+    char* envPath = getenv("BIRA_MEASUREMENT_DIR");
+    if(!envPath) {
+        BIRA_ERROR("(thread_id=%d): BIRA_MEASUREMENT_DIR must be set!\n", thread_id);
+    }
+    std::string base_dir(envPath);
+    std::string fn(DEFAULT_PROFILE_BASE);
+    fn = base_dir + std::string("/") + fn + std::to_string(thread_id)+std::string(BIRA_TRACE_FILE_EXT);
+    const char* filename = fn.c_str();
+    if((pt->_record_file=fopen(filename, "w"))==NULL) {
+        BIRA_ERROR("(thread_id=%d): failed to open file: %s\n", thread_id, filename);
+    }
+    pt->_record_inited = true;
+}
+
+static void
+ClientThreadEnd(void *drcontext)
+{
+    per_thread_t *pt = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+    finalize(pt);
+    free(pt->_rec_buffer);
+    delete pt->rec_list;
+
+    dr_thread_free(drcontext, pt, sizeof(per_thread_t));
+}
+
+static void
+ClientThreadStart(void *drcontext)
+{
+    per_thread_t *pt = (per_thread_t *)dr_thread_alloc(drcontext, sizeof(per_thread_t));
+    if (pt == NULL) {
+	exit(-1);
+    }
+    int32_t id = dr_get_thread_id(drcontext);
+    pt->threadId = id;
+
+    pt->rec_list = new std::vector<record_pmu_t*>();
+
+    drmgr_set_tls_field(drcontext, tls_idx, (void *)pt);
+    // init output files
+    ThreadOutputInit(id, pt);
+}
+
+static void
+module_load_event(void *drcontext, const module_data_t *mod, bool loaded)
+{
+    size_t modoffs;
+    drsym_error_t sym_res = drsym_lookup_symbol(mod->full_path, op_func.get_value().c_str(), &modoffs, DRSYM_DEMANGLE);
+    if (sym_res == DRSYM_SUCCESS) {
+        app_pc towrap = mod->start + modoffs;
+#ifdef SHOW_RESULTS
+        bool ok =
+#endif
+            drwrap_wrap(towrap, wrap_pre, wrap_post);
+#ifdef SHOW_RESULTS
+        if (ok) {
+            dr_fprintf(STDERR, "wrapped %s succeeded\n", op_func.get_value().c_str());
+        } else {
+            dr_fprintf(STDERR, "wrapped %s failed\n", op_func.get_value().c_str());
+        }
+#endif
+	
+    } else {
+        dr_fprintf(STDERR, "%s not found\n", op_func.get_value().c_str());
+    }
+}
+
+DR_EXPORT void
+dr_client_main(client_id_t id, int argc, const char *argv[])
+{
+    dr_set_client_name("DynamoRIO Sample Client 'dr_func_wrap'", "http://dynamorio.org/issues");
+    /* Parse options */
+    std::string parse_err;
+    int last_index;
+    if (!droption_parser_t::parse_argv(DROPTION_SCOPE_CLIENT, argc, argv, &parse_err, &last_index)) {
+        dr_fprintf(STDERR, "Usage error: %s", parse_err.c_str());
+        dr_abort();
+    }
+    /* make it easy to tell, by looking at log file, which client executed */
+    dr_log(NULL, DR_LOG_ALL, 1, "Client 'dr_func_wrap' initializing\n");
+    /* also give notification to stderr */
+#ifdef SHOW_RESULTS
+    if (dr_is_notify_on()) {
+        dr_fprintf(STDERR, "Client wrap is running\n");
+    }
+#endif
+    if (!pmu_collector_init()) {
+        std::cerr << "PMU collector initialization failed!\n" << std::endl;
+    }
+
+    drmgr_init();
+    drwrap_init();
+    drsym_init(0);
+    drmgr_priority_t thread_init_pri = { sizeof(thread_init_pri),
+                                         "dr_func_wrap-thread-init", NULL, NULL,
+                                         6 };
+    drmgr_priority_t thread_exit_pri = { sizeof(thread_exit_pri),
+                                         "dr_func_wrap-thread-exit", NULL, NULL,
+                                         4 };
+    drmgr_priority_t thread_exit_high_pri = { sizeof(thread_exit_pri),
+                                         "dr_func_wrap-thread-exit-trace", NULL, NULL,
+                                         4 };
+
+    if (  !drmgr_register_thread_init_event_ex(ClientThreadStart, &thread_init_pri)
+          || !drmgr_register_thread_exit_event_ex(ClientThreadEnd, &thread_exit_pri)
+        // || !drmgr_register_thread_exit_event_ex(ClientThreadEndFortrace, &thread_exit_high_pri) ) {
+	    ) {
+	exit(-1);
+    }
+    tls_idx = drmgr_register_tls_field();
+    if (tls_idx == -1) {
+	exit(-1);
+    }
+    if (!dr_raw_tls_calloc(&tls_seg, &tls_offs, INSTRACE_TLS_COUNT, 0)) {
+	exit(-1);
+    }
+    dr_register_exit_event(event_exit);
+    drmgr_register_module_load_event(module_load_event);
+    max_lock = dr_mutex_create();
+}
+
+static void
+event_exit(void)
+{
+    if (!pmu_collector_fini()) {
+        std::cerr << "PMU collector finalizalization failed!\n" << std::endl;
+    }
+    dr_mutex_destroy(max_lock);
+    drwrap_exit();
+    drmgr_exit();
+    drsym_exit();
+}
+
+static void
+wrap_pre(void *wrapcxt, OUT void **user_data)
+{
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *pt = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+
+    pt->rec = (record_pmu_t*)allocate(pt, sizeof(record_pmu_t));
+    pt->rec_list->push_back(pt->rec);
+    pt->rec[0].record.type = BIRA_COLLECTED_PMU;
+    pt->rec[0].record.timestamps.enter = get_tsc_raw();
+    pt->rec[0].counter.enter = pmu_collector_get(0);
+    pt->depth++;
+
+    return;
+}
+
+static void
+wrap_post(void *wrapcxt, void *user_data)
+{
+    void *drcontext = dr_get_current_drcontext();
+    per_thread_t *pt = (per_thread_t *)drmgr_get_tls_field(drcontext, tls_idx);
+    pt->depth--;
+    
+    pt->rec = (*(pt->rec_list))[pt->depth];
+    pt->rec[0].record.timestamps.exit = get_tsc_raw();
+    pt->rec[0].counter.exit = pmu_collector_get(0);
+    pt->rec_list->pop_back();
+    return;
+}
