@@ -43,7 +43,6 @@ Usage:
 
 ```
 bira -i <EXE> -f <FUNC> -l <custom external shared library> [--tp]
-jsirun -o <measurement directory> --backtrace -samp_mode <OP1:(int)mode number> -samp_ratio <OP2:(int)sampling ratio> -samp_random <OP3:(int)random seed value> -samp_time <OP4:(int)sampling time with second> -- <EXE> <ARGS>
 #
 # -i EXE
 #   EXE: the input binary file
