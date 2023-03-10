@@ -701,47 +701,68 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 		    printf("skip2!\n");
 		    continue;
 		}
+#ifndef KYLIN
 		instrs.push_back(decode_list[i+1]);
+#endif
 		if((opcode_ins2 != OP_b && check_opcode(opcode_ins2)) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
 		    std::string secName = ".mysection" + std::to_string(i);
                     encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, false);
 
+#ifndef KYLIN
                     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                     decode_list[i] = adrp_ins;
                     decode_list[i+1] = blr_ins;
+#else
+                    decode_list[i] = blr_ins;
+#endif
                     i++;
 		} else {
+#ifndef KYLIN
 		    instrs.push_back(decode_list[i+2]);
+#endif
 		    std::string secName = ".special";
 		    encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, false);
 
-                    instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
 	            instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
+#ifndef KYLIN
+                    instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                     decode_list[i] = adrp_ins;
                     decode_list[i+1] = add_ins;
                     decode_list[i+2] = blr_ins;
+#else
+                    decode_list[i] = add_ins;
+                    decode_list[i+1] = blr_ins;
+#endif
                     i+=2;
 		}
 		continue;
 	    }
 
 	    if(check_stp_x30(decode_list[i-2]) || check_opcode(opcode_ins_2) || branch_addrs.find(file_offset + (i-1)*4) != branch_addrs.end()) {
+#ifndef KYLIN
                 instrs.push_back(decode_list[i-1]);
+#endif
                 std::string secName = ".mysection" + std::to_string(i);
                 encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, true);
 
+#ifndef KYLIN
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                 decode_list[i-1] = adrp_ins;
+#endif
                 decode_list[i] = blr_ins;
 	    } else {
+#ifndef KYLIN
                 instrs.push_back(decode_list[i-2]);
+#endif
                 instrs.push_back(decode_list[i-1]);
 		std::string secName = ".special";
 		encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, true);
 
+#ifndef KYLIN
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
-	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
                 decode_list[i-2] = adrp_ins;
+#endif
+	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
                 decode_list[i-1] = add_ins;
                 decode_list[i] = blr_ins;
 	    }

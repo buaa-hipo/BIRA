@@ -4,6 +4,23 @@ cmake_minimum_required(VERSION 3.5)
 
 project(bira LANGUAGES CXX)
 
+EXECUTE_PROCESS(COMMAND uname -r
+        TIMEOUT 5
+	OUTPUT_VARIABLE OS_TYPE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+MESSAGE(STATUS "BUILD OS_TYPE ${OS_TYPE}")
+
+if (OS_TYPE MATCHES ".*oe.*")
+  message(STATUS "Building for OS:openEuler")
+  # add_compile_definitions(AARCH64)
+endif()
+
+if (OS_TYPE MATCHES ".*ky.*")
+  message(STATUS "Building for OS:kylin")
+  add_compile_definitions(KYLIN)
+endif()
+
 # User must provide location of Dyninst cmake files either as a cache or
 # environment variable
 if(NOT Dyninst_DIR)
