@@ -671,8 +671,11 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 	if(decode_list[i]->opcode == OP_blr) {
 	    isBlr = true;
 	}
-
+#ifndef KYLIN
         if((isBlr || (decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr))) {
+#else
+        if((isBlr || (decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr - 0x400000))) {
+#endif
 	    bool can_replace_before = (branch_addrs.find(file_offset + (i)*4) == branch_addrs.end());
 	    bool can_replace_after = (branch_addrs.find(file_offset + (i+1)*4) == branch_addrs.end());
 	    if(!can_replace_before && !can_replace_after) {
@@ -701,38 +704,36 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 		    printf("skip2!\n");
 		    continue;
 		}
-#ifndef KYLIN
 		instrs.push_back(decode_list[i+1]);
-#endif
 		if((opcode_ins2 != OP_b && check_opcode(opcode_ins2)) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
+#ifndef KYLIN
 		    std::string secName = ".mysection" + std::to_string(i);
                     encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, false);
 
-#ifndef KYLIN
                     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                     decode_list[i] = adrp_ins;
                     decode_list[i+1] = blr_ins;
-#else
-                    decode_list[i] = blr_ins;
-#endif
                     i++;
-		} else {
-#ifndef KYLIN
-		    instrs.push_back(decode_list[i+2]);
+#else
+		    continue;
 #endif
+		} else {
+		    instrs.push_back(decode_list[i+2]);
 		    std::string secName = ".special";
 		    encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, false);
 
-	            instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
 #ifndef KYLIN
                     instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
+	            instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
                     decode_list[i] = adrp_ins;
                     decode_list[i+1] = add_ins;
-                    decode_list[i+2] = blr_ins;
 #else
-                    decode_list[i] = add_ins;
-                    decode_list[i+1] = blr_ins;
+		    instr_t * movz_ins = INSTR_CREATE_movz(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT16(wrapper_addr & 0xffff), OPND_CREATE_INT32(0));
+		    instr_t * movk_ins = INSTR_CREATE_movk(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT16((wrapper_addr >> 16) & 0xffff), OPND_CREATE_INT32(16));
+                    decode_list[i] = movz_ins;
+                    decode_list[i+1] = movk_ins;
 #endif
+                    decode_list[i+2] = blr_ins;
                     i+=2;
 		}
 		continue;
@@ -741,29 +742,32 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 	    if(check_stp_x30(decode_list[i-2]) || check_opcode(opcode_ins_2) || branch_addrs.find(file_offset + (i-1)*4) != branch_addrs.end()) {
 #ifndef KYLIN
                 instrs.push_back(decode_list[i-1]);
-#endif
                 std::string secName = ".mysection" + std::to_string(i);
                 encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, true);
 
-#ifndef KYLIN
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
                 decode_list[i-1] = adrp_ins;
-#endif
                 decode_list[i] = blr_ins;
-	    } else {
-#ifndef KYLIN
-                instrs.push_back(decode_list[i-2]);
+#else
+		continue;
 #endif
+	    } else {
+                instrs.push_back(decode_list[i-2]);
                 instrs.push_back(decode_list[i-1]);
 		std::string secName = ".special";
 		encode_section(symTab, wrapper_addr, instrs, func_addr, secName, false, isBlr, true);
 
 #ifndef KYLIN
                 instr_t * adrp_ins = INSTR_CREATE_adrp(opnd_create_reg(DR_REG_BR), OPND_CREATE_ABSMEM((void *)((wrapper_addr >> 12) << 12), OPSZ_0));
-                decode_list[i-2] = adrp_ins;
-#endif
 	        instr_t* add_ins = INSTR_CREATE_add(opnd_create_reg(DR_REG_BR), opnd_create_reg(DR_REG_BR), OPND_CREATE_INT32((wrapper_addr << 20) >> 20));
+                decode_list[i-2] = adrp_ins;
                 decode_list[i-1] = add_ins;
+#else
+		instr_t * movz_ins = INSTR_CREATE_movz(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT16(wrapper_addr & 0xffff), OPND_CREATE_INT32(0));
+		instr_t * movk_ins = INSTR_CREATE_movk(opnd_create_reg(DR_REG_X30), OPND_CREATE_INT16((wrapper_addr >> 16) & 0xffff), OPND_CREATE_INT32(16));
+                decode_list[i-2] = movz_ins;
+                decode_list[i-1] = movk_ins;
+#endif
                 decode_list[i] = blr_ins;
 	    }
         }
