@@ -628,6 +628,9 @@ check_opcode(int opcode)
 	case OP_bl:
 
 	case OP_ret:
+#ifdef KYLIN
+	case OP_adrp:
+#endif
 		return true;
 	default: return false;
     }
@@ -705,8 +708,8 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
 		    continue;
 		}
 		instrs.push_back(decode_list[i+1]);
-		if((opcode_ins2 != OP_b && check_opcode(opcode_ins2)) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
 #ifndef KYLIN
+		if((opcode_ins2 != OP_b && check_opcode(opcode_ins2)) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
 		    std::string secName = ".mysection" + std::to_string(i);
                     encode_section(symTab, wrapper_addr, instrs, func_addr, secName, true, isBlr, false);
 
@@ -715,6 +718,7 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
                     decode_list[i+1] = blr_ins;
                     i++;
 #else
+		if(check_opcode(opcode_ins2) || branch_addrs.find(file_offset + (i+2)*4) != branch_addrs.end()) {
 		    continue;
 #endif
 		} else {
