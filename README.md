@@ -28,7 +28,7 @@ git clone git@github.com:buaa-hipo/BIRA.git
 ./build.sh
 ```
 
-Load the environment to use the installed JSI-Toolkit:
+Load the environment to use the installed BiRFIA:
 
 ```
 # make sure we are in the root directory of this repo
@@ -40,6 +40,8 @@ source env.sh
 ### How to use BiRFIA
 To use BiRFIA, you neet to complete each step of the **Build & Install**
 Usage:
+
+Before running, one must set `BIRA_COLLECT_PMU_EVENT` and `BIRA_MEASUREMENT_DIR` environment variables to specify the collected PMU event and output dir.
 
 ```
 bira -i <EXE> -f <FUNC> -l <custom external shared library> [--tp]
