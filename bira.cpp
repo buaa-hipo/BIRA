@@ -671,9 +671,9 @@ modify_text_dyn(std::unique_ptr<const Binary> &binary, uint func_addr, SymtabAPI
     for(int i = 0; i < decode_list.size(); i++) {
 	bool isBlr = false;
 
-	if(decode_list[i]->opcode == OP_blr) {
-	    isBlr = true;
-	}
+	// if(decode_list[i]->opcode == OP_blr) {
+	//     isBlr = true;
+	// }
 #ifndef KYLIN
         if((isBlr || (decode_list[i]->opcode == OP_bl && opnd_get_pc(instr_get_target(decode_list[i])) == func_addr))) {
 #else
